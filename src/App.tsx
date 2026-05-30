@@ -59,6 +59,9 @@ const navItems: Array<{ label: string; route: AppRoute; symbol: string }> = [
 ]
 
 const today = new Date().toISOString().slice(0, 10)
+const chartWidth = 320
+const chartHeight = 180
+const chartPadding = 22
 
 const initialVehicles: Vehicle[] = [
   {
@@ -143,6 +146,17 @@ function formatDate(value: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(`${value}T12:00:00`))
+}
+
+function getEntryDate(entry: FuelEntry) {
+  return new Date(`${entry.filledAt}T12:00:00`)
+}
+
+function getOneYearAgo() {
+  const date = new Date()
+
+  date.setFullYear(date.getFullYear() - 1)
+  return date
 }
 
 function makeId(prefix: string) {
@@ -242,7 +256,9 @@ function App() {
   )
   const recentEntries = [...entriesWithMetrics].reverse()
   const chartEntries = entriesWithMetrics.filter((entry) => entry.mpg)
-  const latestFullEntry = [...entriesWithMetrics].reverse().find((entry) => entry.mpg)
+  const yearlyChartEntries = chartEntries.filter(
+    (entry) => getEntryDate(entry) >= getOneYearAgo(),
+  )
   const averageMpg =
     chartEntries.reduce((sum, entry) => sum + (entry.mpg ?? 0), 0) /
     (chartEntries.length || 1)
@@ -252,10 +268,50 @@ function App() {
     0,
   )
   const costPerMile = totalMiles > 0 ? totalSpend / totalMiles : 0
-  const monthlySpend = selectedEntries
-    .filter((entry) => entry.filledAt.slice(0, 7) === today.slice(0, 7))
-    .reduce((sum, entry) => sum + entry.totalCost, 0)
-  const maxMpg = Math.max(...chartEntries.map((entry) => entry.mpg ?? 0), 1)
+  const yearlyMpgValues = yearlyChartEntries.map((entry) => entry.mpg ?? 0)
+  const minChartMpg = yearlyMpgValues.length
+    ? Math.max(0, Math.floor(Math.min(...yearlyMpgValues) - 2))
+    : 0
+  const maxChartMpg = yearlyMpgValues.length
+    ? Math.ceil(Math.max(...yearlyMpgValues) + 2)
+    : 1
+  const chartRange = Math.max(maxChartMpg - minChartMpg, 1)
+  const chartLeft = chartPadding
+  const chartRight = chartWidth - chartPadding
+  const chartTop = chartPadding
+  const chartBottom = chartHeight - chartPadding
+  const firstChartDate = yearlyChartEntries[0]
+    ? getEntryDate(yearlyChartEntries[0]).getTime()
+    : 0
+  const lastChartDate = yearlyChartEntries.at(-1)
+    ? getEntryDate(yearlyChartEntries.at(-1)!).getTime()
+    : firstChartDate
+  const chartTimeRange = Math.max(lastChartDate - firstChartDate, 1)
+  const linePoints = yearlyChartEntries.map((entry, index) => {
+    const dateOffset = getEntryDate(entry).getTime() - firstChartDate
+    const x =
+      yearlyChartEntries.length === 1
+        ? chartWidth / 2
+        : chartLeft + (dateOffset / chartTimeRange) * (chartRight - chartLeft)
+    const y =
+      chartBottom -
+      (((entry.mpg ?? 0) - minChartMpg) / chartRange) * (chartBottom - chartTop)
+
+    return {
+      entry,
+      x,
+      y,
+      label: `${formatNumber(entry.mpg ?? 0)} MPG on ${formatDate(entry.filledAt)}`,
+      key: `${entry.id}-${index}`,
+    }
+  })
+  const linePath = linePoints
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+    .join(' ')
+  const areaPath =
+    linePoints.length > 1
+      ? `${linePath} L ${linePoints.at(-1)?.x} ${chartBottom} L ${linePoints[0].x} ${chartBottom} Z`
+      : ''
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify({ vehicles, entries }))
@@ -550,7 +606,7 @@ function App() {
             <div className="entry-list">
               {recentEntries.map((entry) => (
                 <article className="entry-card" key={entry.id}>
-                  <div>
+                  <div className="entry-main">
                     <strong>{formatDate(entry.filledAt)}</strong>
                     <span>
                       {formatNumber(entry.gallons, 3)} gal ·{' '}
@@ -558,14 +614,9 @@ function App() {
                     </span>
                     <small>
                       {entry.isFullTank ? 'Full tank' : 'Partial fill'}
-                    </small>
-                  </div>
-
-                  <div className="entry-metrics">
-                    <span>
+                      {' · '}
                       {entry.mpg ? `${formatNumber(entry.mpg)} MPG` : 'Pending MPG'}
-                    </span>
-                    <small>
+                      {' · '}
                       {entry.milesDriven
                         ? `${entry.milesDriven} miles`
                         : `${entry.odometer} mi`}
@@ -575,17 +626,28 @@ function App() {
                   <div className="entry-actions">
                     <button
                       type="button"
+                      aria-label={`Edit entry from ${formatDate(entry.filledAt)}`}
                       title="Edit entry"
                       onClick={() => editEntry(entry)}
                     >
-                      Edit
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M4 20h4.6L19.4 9.2a2.1 2.1 0 0 0 0-3l-1.6-1.6a2.1 2.1 0 0 0-3 0L4 15.4V20Z" />
+                        <path d="m13.5 6 4.5 4.5" />
+                      </svg>
                     </button>
                     <button
                       type="button"
+                      aria-label={`Delete entry from ${formatDate(entry.filledAt)}`}
                       title="Delete entry"
                       onClick={() => deleteEntry(entry.id)}
                     >
-                      Delete
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M4 7h16" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M6 7l1 13h10l1-13" />
+                        <path d="M9 7V4h6v3" />
+                      </svg>
                     </button>
                   </div>
                 </article>
@@ -605,12 +667,6 @@ function App() {
 
             <div className="stat-grid">
               <article className="stat-card highlight">
-                <span>Latest MPG</span>
-                <strong>
-                  {latestFullEntry?.mpg ? formatNumber(latestFullEntry.mpg) : '--'}
-                </strong>
-              </article>
-              <article className="stat-card">
                 <span>Average MPG</span>
                 <strong>{chartEntries.length ? formatNumber(averageMpg) : '--'}</strong>
               </article>
@@ -618,38 +674,65 @@ function App() {
                 <span>Cost / mile</span>
                 <strong>{costPerMile ? formatCurrency(costPerMile) : '--'}</strong>
               </article>
-              <article className="stat-card">
-                <span>This month</span>
-                <strong>{formatCurrency(monthlySpend)}</strong>
-              </article>
             </div>
 
             <div className="chart-wrap">
               <div className="chart-heading">
                 <span>MPG trend</span>
-                <small>{chartEntries.length} full-tank intervals</small>
+                <small>{yearlyChartEntries.length} intervals in the last year</small>
               </div>
-              <div className="bar-chart" aria-label="MPG trend chart">
-                {chartEntries.length ? (
-                  chartEntries.map((entry) => (
-                    <div className="bar-item" key={entry.id}>
-                      <span
-                        className="bar"
-                        style={{
-                          height: `${Math.max(
-                            ((entry.mpg ?? 0) / maxMpg) * 100,
-                            8,
-                          )}%`,
-                        }}
-                        title={`${formatNumber(entry.mpg ?? 0)} MPG on ${formatDate(
-                          entry.filledAt,
-                        )}`}
+              <div className="line-chart" aria-label="MPG trend chart">
+                {yearlyChartEntries.length ? (
+                  <>
+                    <svg
+                      role="img"
+                      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                      aria-labelledby="mpg-chart-title mpg-chart-description"
+                    >
+                      <title id="mpg-chart-title">MPG trend</title>
+                      <desc id="mpg-chart-description">
+                        Line chart showing full-tank MPG intervals from the last year.
+                      </desc>
+                      <line
+                        className="chart-grid-line"
+                        x1={chartLeft}
+                        x2={chartRight}
+                        y1={chartTop}
+                        y2={chartTop}
                       />
-                      <small>{entry.filledAt.slice(5).replace('-', '/')}</small>
+                      <line
+                        className="chart-grid-line"
+                        x1={chartLeft}
+                        x2={chartRight}
+                        y1={chartBottom}
+                        y2={chartBottom}
+                      />
+                      {areaPath && <path className="chart-area" d={areaPath} />}
+                      {linePath && <path className="chart-line" d={linePath} />}
+                      {linePoints.map((point) => (
+                        <g key={point.key}>
+                          <circle className="chart-point" cx={point.x} cy={point.y} r="4" />
+                          <title>{point.label}</title>
+                        </g>
+                      ))}
+                    </svg>
+                    <div className="chart-scale" aria-hidden="true">
+                      <span>{maxChartMpg} MPG</span>
+                      <span>{minChartMpg} MPG</span>
                     </div>
-                  ))
+                    <div className="chart-dates" aria-hidden="true">
+                      <span>{formatDate(yearlyChartEntries[0].filledAt)}</span>
+                      <span>
+                        {formatDate(
+                          yearlyChartEntries[yearlyChartEntries.length - 1].filledAt,
+                        )}
+                      </span>
+                    </div>
+                  </>
                 ) : (
-                  <p className="empty-state">Add two full-tank entries to see MPG.</p>
+                  <p className="empty-state">
+                    Add two full-tank entries within a year to see MPG.
+                  </p>
                 )}
               </div>
             </div>
