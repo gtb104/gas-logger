@@ -87,6 +87,12 @@
   padding: 18px;
 }
 
+.config-section + .config-section {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
 .panel-heading {
   align-items: flex-start;
   display: flex;
@@ -173,8 +179,12 @@
 
 .segmented-control button.selected {
   background: var(--surface);
-  box-shadow: 0 3px 12px rgba(24, 39, 32, 0.08);
+  box-shadow: var(--soft-shadow);
   color: var(--accent-strong);
+}
+
+.theme-control {
+  margin-bottom: 0;
 }
 
 .field-row {
@@ -193,7 +203,7 @@ label {
 
 input,
 textarea {
-  background: #fbfcf9;
+  background: var(--field-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
@@ -212,7 +222,7 @@ input:focus,
 textarea:focus,
 button:focus-visible {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(25, 111, 95, 0.18);
+  box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
 }
 
@@ -251,11 +261,11 @@ button:focus-visible {
 }
 
 .info-tooltip span {
-  background: var(--text);
+  background: var(--tooltip-bg);
   border-radius: var(--radius);
   bottom: calc(100% + 10px);
   box-shadow: var(--shadow);
-  color: #ffffff;
+  color: var(--tooltip-text);
   font-size: 0.78rem;
   font-weight: 650;
   line-height: 1.35;
@@ -292,7 +302,7 @@ button:focus-visible {
 
 .primary-button {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .secondary-button {
@@ -338,7 +348,7 @@ button:focus-visible {
 
 .stat-card.highlight span,
 .stat-card.highlight strong {
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .chart-wrap {
@@ -376,12 +386,12 @@ button:focus-visible {
 }
 
 .chart-grid-line {
-  stroke: rgba(102, 115, 109, 0.22);
+  stroke: var(--chart-grid);
   stroke-width: 1;
 }
 
 .chart-area {
-  fill: rgba(25, 111, 95, 0.13);
+  fill: var(--chart-area);
 }
 
 .chart-line {
@@ -441,7 +451,7 @@ button:focus-visible {
 
 .entry-card {
   align-items: start;
-  background: #fbfcf9;
+  background: var(--field-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   display: grid;
@@ -517,12 +527,12 @@ button:focus-visible {
 }
 
 .entry-actions button:last-child:hover {
-  background: #f7e7e4;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
 .bottom-nav {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--nav-bg);
   border: 1px solid var(--border);
   border-radius: 8px 8px 0 0;
   bottom: 0;
@@ -573,7 +583,7 @@ button:focus-visible {
 .bottom-nav button.active span {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 @media (max-width: 760px) {

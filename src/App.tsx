@@ -46,8 +46,10 @@ type DraftVehicle = {
 }
 
 const storageKey = 'gas-logger:v1'
+const themeStorageKey = 'gas-logger:theme'
 
 type AppRoute = '/fillup' | '/history' | '/stats' | '/config'
+type ThemePreference = 'light' | 'dark' | 'auto'
 
 const routes: AppRoute[] = ['/fillup', '/history', '/stats', '/config']
 
@@ -56,6 +58,12 @@ const navItems: Array<{ label: string; route: AppRoute; symbol: string }> = [
   { label: 'History', route: '/history', symbol: 'H' },
   { label: 'Stats', route: '/stats', symbol: '%' },
   { label: 'Config', route: '/config', symbol: '*' },
+]
+
+const themeOptions: Array<{ label: string; value: ThemePreference }> = [
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+  { label: 'Auto', value: 'auto' },
 ]
 
 const today = new Date().toISOString().slice(0, 10)
@@ -230,9 +238,23 @@ function getCurrentRoute(): AppRoute {
     : '/fillup'
 }
 
+function getStoredTheme(): ThemePreference {
+  const storedTheme = window.localStorage.getItem(themeStorageKey)
+
+  return storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'auto'
+    ? storedTheme
+    : 'auto'
+}
+
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 function App() {
   const storedState = useMemo(() => getStoredState(), [])
   const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
+  const [themePreference, setThemePreference] =
+    useState<ThemePreference>(getStoredTheme)
   const [vehicles, setVehicles] = useState<Vehicle[]>(storedState.vehicles)
   const [entries, setEntries] = useState<FuelEntry[]>(storedState.entries)
   const [selectedVehicleId, setSelectedVehicleId] = useState(
@@ -316,6 +338,23 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify({ vehicles, entries }))
   }, [vehicles, entries])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+
+    function applyTheme() {
+      const resolvedTheme = themePreference === 'auto' ? getSystemTheme() : themePreference
+
+      document.documentElement.dataset.theme = resolvedTheme
+      document.documentElement.style.colorScheme = resolvedTheme
+      window.localStorage.setItem(themeStorageKey, themePreference)
+    }
+
+    applyTheme()
+    mediaQuery.addEventListener('change', applyTheme)
+
+    return () => mediaQuery.removeEventListener('change', applyTheme)
+  }, [themePreference])
 
   useEffect(() => {
     if (window.location.pathname === '/') {
@@ -741,6 +780,30 @@ function App() {
 
         {route === '/config' && (
           <section className="vehicle-panel screen-panel">
+          <section className="config-section">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Appearance</p>
+                <h2>Theme</h2>
+              </div>
+            </div>
+
+            <div className="segmented-control theme-control" aria-label="Theme selector">
+              {themeOptions.map((option) => (
+                <button
+                  aria-pressed={themePreference === option.value}
+                  className={themePreference === option.value ? 'selected' : ''}
+                  key={option.value}
+                  type="button"
+                  onClick={() => setThemePreference(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="config-section">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Vehicles</p>
@@ -815,6 +878,7 @@ function App() {
               + Add vehicle
             </button>
           </form>
+          </section>
         </section>
         )}
       </section>
