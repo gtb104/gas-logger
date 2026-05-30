@@ -1,121 +1,756 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
 import './App.css'
 
+type Vehicle = {
+  id: string
+  name: string
+  make: string
+  model: string
+  year: string
+  archived: boolean
+}
+
+type FuelEntry = {
+  id: string
+  vehicleId: string
+  filledAt: string
+  odometer: number
+  gallons: number
+  totalCost: number
+  isFullTank: boolean
+  notes: string
+}
+
+type EntryWithMetrics = FuelEntry & {
+  milesDriven: number | null
+  mpg: number | null
+  costPerMile: number | null
+}
+
+type DraftEntry = {
+  vehicleId: string
+  filledAt: string
+  odometer: string
+  gallons: string
+  totalCost: string
+  isFullTank: boolean
+  notes: string
+}
+
+type DraftVehicle = {
+  name: string
+  make: string
+  model: string
+  year: string
+}
+
+const storageKey = 'gas-logger:v1'
+
+type AppRoute = '/fillup' | '/history' | '/stats' | '/config'
+
+const routes: AppRoute[] = ['/fillup', '/history', '/stats', '/config']
+
+const navItems: Array<{ label: string; route: AppRoute; symbol: string }> = [
+  { label: 'Fill-up', route: '/fillup', symbol: '+' },
+  { label: 'History', route: '/history', symbol: 'H' },
+  { label: 'Stats', route: '/stats', symbol: '%' },
+  { label: 'Config', route: '/config', symbol: '*' },
+]
+
+const today = new Date().toISOString().slice(0, 10)
+
+const initialVehicles: Vehicle[] = [
+  {
+    id: 'daily-driver',
+    name: 'Daily Driver',
+    make: 'Toyota',
+    model: 'RAV4',
+    year: '2021',
+    archived: false,
+  },
+]
+
+const initialEntries: FuelEntry[] = [
+  {
+    id: 'entry-1',
+    vehicleId: 'daily-driver',
+    filledAt: '2026-04-18',
+    odometer: 42910,
+    gallons: 11.8,
+    totalCost: 41.18,
+    isFullTank: true,
+    notes: 'Baseline fill',
+  },
+  {
+    id: 'entry-2',
+    vehicleId: 'daily-driver',
+    filledAt: '2026-05-03',
+    odometer: 43245,
+    gallons: 12.1,
+    totalCost: 42.23,
+    isFullTank: true,
+    notes: '',
+  },
+  {
+    id: 'entry-3',
+    vehicleId: 'daily-driver',
+    filledAt: '2026-05-16',
+    odometer: 43582,
+    gallons: 11.4,
+    totalCost: 39.79,
+    isFullTank: true,
+    notes: 'Mostly commuting',
+  },
+]
+
+const newVehicleDraft: DraftVehicle = {
+  name: '',
+  make: '',
+  model: '',
+  year: '',
+}
+
+function createEntryDraft(vehicleId: string): DraftEntry {
+  return {
+    vehicleId,
+    filledAt: today,
+    odometer: '',
+    gallons: '',
+    totalCost: '',
+    isFullTank: true,
+    notes: '',
+  }
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(value)
+}
+
+function formatNumber(value: number, digits = 1) {
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  }).format(value)
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(`${value}T12:00:00`))
+}
+
+function makeId(prefix: string) {
+  return `${prefix}-${crypto.randomUUID()}`
+}
+
+function sortEntries(entries: FuelEntry[]) {
+  return [...entries].sort((a, b) => {
+    if (a.filledAt === b.filledAt) {
+      return a.odometer - b.odometer
+    }
+
+    return a.filledAt.localeCompare(b.filledAt)
+  })
+}
+
+function buildMetrics(entries: FuelEntry[]): EntryWithMetrics[] {
+  let previousFull: FuelEntry | null = null
+
+  return sortEntries(entries).map((entry) => {
+    const milesDriven =
+      entry.isFullTank && previousFull ? entry.odometer - previousFull.odometer : null
+    const mpg = milesDriven && milesDriven > 0 ? milesDriven / entry.gallons : null
+    const costPerMile =
+      milesDriven && milesDriven > 0 ? entry.totalCost / milesDriven : null
+
+    if (entry.isFullTank) {
+      previousFull = entry
+    }
+
+    return {
+      ...entry,
+      milesDriven,
+      mpg,
+      costPerMile,
+    }
+  })
+}
+
+function getStoredState() {
+  const stored = window.localStorage.getItem(storageKey)
+
+  if (!stored) {
+    return {
+      vehicles: initialVehicles,
+      entries: initialEntries,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as {
+      vehicles?: Vehicle[]
+      entries?: FuelEntry[]
+    }
+
+    return {
+      vehicles: parsed.vehicles?.length ? parsed.vehicles : initialVehicles,
+      entries: parsed.entries?.length ? parsed.entries : initialEntries,
+    }
+  } catch {
+    return {
+      vehicles: initialVehicles,
+      entries: initialEntries,
+    }
+  }
+}
+
+function getCurrentRoute(): AppRoute {
+  return routes.includes(window.location.pathname as AppRoute)
+    ? (window.location.pathname as AppRoute)
+    : '/fillup'
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const storedState = useMemo(() => getStoredState(), [])
+  const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
+  const [vehicles, setVehicles] = useState<Vehicle[]>(storedState.vehicles)
+  const [entries, setEntries] = useState<FuelEntry[]>(storedState.entries)
+  const [selectedVehicleId, setSelectedVehicleId] = useState(
+    storedState.vehicles[0]?.id ?? '',
+  )
+  const [entryDraft, setEntryDraft] = useState(
+    createEntryDraft(storedState.vehicles[0]?.id ?? ''),
+  )
+  const [vehicleDraft, setVehicleDraft] = useState(newVehicleDraft)
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+
+  const activeVehicles = vehicles.filter((vehicle) => !vehicle.archived)
+  const selectedVehicle =
+    vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? activeVehicles[0]
+  const selectedEntries = entries.filter(
+    (entry) => entry.vehicleId === selectedVehicle?.id,
+  )
+  const entriesWithMetrics = useMemo(
+    () => buildMetrics(selectedEntries),
+    [selectedEntries],
+  )
+  const recentEntries = [...entriesWithMetrics].reverse()
+  const chartEntries = entriesWithMetrics.filter((entry) => entry.mpg)
+  const latestFullEntry = [...entriesWithMetrics].reverse().find((entry) => entry.mpg)
+  const averageMpg =
+    chartEntries.reduce((sum, entry) => sum + (entry.mpg ?? 0), 0) /
+    (chartEntries.length || 1)
+  const totalSpend = selectedEntries.reduce((sum, entry) => sum + entry.totalCost, 0)
+  const totalMiles = entriesWithMetrics.reduce(
+    (sum, entry) => sum + (entry.milesDriven ?? 0),
+    0,
+  )
+  const costPerMile = totalMiles > 0 ? totalSpend / totalMiles : 0
+  const monthlySpend = selectedEntries
+    .filter((entry) => entry.filledAt.slice(0, 7) === today.slice(0, 7))
+    .reduce((sum, entry) => sum + entry.totalCost, 0)
+  const maxMpg = Math.max(...chartEntries.map((entry) => entry.mpg ?? 0), 1)
+
+  useEffect(() => {
+    window.localStorage.setItem(storageKey, JSON.stringify({ vehicles, entries }))
+  }, [vehicles, entries])
+
+  useEffect(() => {
+    if (window.location.pathname === '/') {
+      window.history.replaceState({}, '', '/fillup')
+    }
+
+    const handlePopState = () => setRoute(getCurrentRoute())
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  function navigate(nextRoute: AppRoute) {
+    if (nextRoute === route) {
+      return
+    }
+
+    window.history.pushState({}, '', nextRoute)
+    setRoute(nextRoute)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function updateEntryDraft(field: keyof DraftEntry, value: string | boolean) {
+    setEntryDraft((draft) => ({ ...draft, [field]: value }))
+  }
+
+  function updateVehicleDraft(field: keyof DraftVehicle, value: string) {
+    setVehicleDraft((draft) => ({ ...draft, [field]: value }))
+  }
+
+  function resetEntryDraft(vehicleId = selectedVehicle?.id ?? '') {
+    setEntryDraft(createEntryDraft(vehicleId))
+    setEditingEntryId(null)
+  }
+
+  function selectVehicle(vehicleId: string) {
+    setSelectedVehicleId(vehicleId)
+    setEntryDraft((draft) => ({ ...draft, vehicleId }))
+  }
+
+  function submitVehicle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const nextVehicle: Vehicle = {
+      id: makeId('vehicle'),
+      name: vehicleDraft.name.trim() || 'Untitled vehicle',
+      make: vehicleDraft.make.trim(),
+      model: vehicleDraft.model.trim(),
+      year: vehicleDraft.year.trim(),
+      archived: false,
+    }
+
+    setVehicles((currentVehicles) => [...currentVehicles, nextVehicle])
+    setSelectedVehicleId(nextVehicle.id)
+    setEntryDraft(createEntryDraft(nextVehicle.id))
+    setVehicleDraft(newVehicleDraft)
+  }
+
+  function submitEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const gallons = Number(entryDraft.gallons)
+    const totalCost = Number(entryDraft.totalCost)
+
+    const nextEntry: FuelEntry = {
+      id: editingEntryId ?? makeId('entry'),
+      vehicleId: entryDraft.vehicleId,
+      filledAt: entryDraft.filledAt,
+      odometer: Number(entryDraft.odometer),
+      gallons,
+      totalCost,
+      isFullTank: entryDraft.isFullTank,
+      notes: entryDraft.notes.trim(),
+    }
+
+    setEntries((currentEntries) => {
+      if (editingEntryId) {
+        return currentEntries.map((entry) =>
+          entry.id === editingEntryId ? nextEntry : entry,
+        )
+      }
+
+      return [...currentEntries, nextEntry]
+    })
+    resetEntryDraft(nextEntry.vehicleId)
+    navigate('/history')
+  }
+
+  function editEntry(entry: FuelEntry) {
+    setEditingEntryId(entry.id)
+    setEntryDraft({
+      vehicleId: entry.vehicleId,
+      filledAt: entry.filledAt,
+      odometer: String(entry.odometer),
+      gallons: String(entry.gallons),
+      totalCost: String(entry.totalCost),
+      isFullTank: entry.isFullTank,
+      notes: entry.notes,
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    navigate('/fillup')
+  }
+
+  function deleteEntry(entryId: string) {
+    setEntries((currentEntries) =>
+      currentEntries.filter((entry) => entry.id !== entryId),
+    )
+
+    if (entryId === editingEntryId) {
+      resetEntryDraft()
+    }
+  }
+
+  function archiveVehicle() {
+    if (!selectedVehicle || activeVehicles.length < 2) {
+      return
+    }
+
+    setVehicles((currentVehicles) =>
+      currentVehicles.map((vehicle) =>
+        vehicle.id === selectedVehicle.id ? { ...vehicle, archived: true } : vehicle,
+      ),
+    )
+    const nextVehicle = activeVehicles.find(
+      (vehicle) => vehicle.id !== selectedVehicle.id,
+    )
+    setSelectedVehicleId(nextVehicle?.id ?? '')
+    resetEntryDraft(nextVehicle?.id ?? '')
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <main className="app-shell">
+      <header className="topbar">
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+          <p className="eyebrow">Fuel log</p>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+        {route === '/config' && (
+          <div className="account-chip" aria-label="Current account">
+            <span>GG</span>
+            <small>{selectedVehicle?.name ?? 'No vehicle'}</small>
+          </div>
+        )}
+      </header>
+
+      <section className="app-content">
+        {route === '/fillup' && (
+          <section className="entry-panel screen-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">New fill-up</p>
+                <h2>{selectedVehicle?.name ?? 'Select a vehicle'}</h2>
+              </div>
+              {editingEntryId && (
+                <button
+                  className="secondary-button compact"
+                  type="button"
+                  onClick={() => resetEntryDraft()}
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
+
+            {activeVehicles.length > 1 && (
+              <div className="segmented-control" aria-label="Vehicle selector">
+                {activeVehicles.map((vehicle) => (
+                  <button
+                    className={vehicle.id === selectedVehicle?.id ? 'selected' : ''}
+                    key={vehicle.id}
+                    type="button"
+                    onClick={() => selectVehicle(vehicle.id)}
+                  >
+                    {vehicle.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <form className="entry-form" onSubmit={submitEntry}>
+              <div className="field-row">
+                <label>
+                  Date
+                  <input
+                    required
+                    type="date"
+                    value={entryDraft.filledAt}
+                    onChange={(event) =>
+                      updateEntryDraft('filledAt', event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Odometer
+                  <input
+                    required
+                    inputMode="decimal"
+                    min="0"
+                    type="number"
+                    value={entryDraft.odometer}
+                    onChange={(event) =>
+                      updateEntryDraft('odometer', event.target.value)
+                    }
+                    placeholder="43890"
+                  />
+                </label>
+              </div>
+
+              <div className="field-row">
+                <label>
+                  Gallons
+                  <input
+                    required
+                    inputMode="decimal"
+                    min="0.001"
+                    step="0.001"
+                    type="number"
+                    value={entryDraft.gallons}
+                    onChange={(event) =>
+                      updateEntryDraft('gallons', event.target.value)
+                    }
+                    placeholder="12.400"
+                  />
+                </label>
+                <label>
+                  Total cost
+                  <input
+                    required
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    type="number"
+                    value={entryDraft.totalCost}
+                    onChange={(event) =>
+                      updateEntryDraft('totalCost', event.target.value)
+                    }
+                    placeholder="43.50"
+                  />
+                </label>
+              </div>
+
+              <label className="toggle-row">
+                <input
+                  checked={entryDraft.isFullTank}
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateEntryDraft('isFullTank', event.target.checked)
+                  }
+                />
+                <span>Full tank</span>
+                <button
+                  aria-label="Full tank help"
+                  className="info-tooltip"
+                  type="button"
+                >
+                  i
+                  <span role="tooltip">
+                    Check this when you fill the tank all the way. Uncheck it for a
+                    partial fill-up.
+                  </span>
+                </button>
+              </label>
+
+              <label>
+                Notes
+                <textarea
+                  value={entryDraft.notes}
+                  onChange={(event) => updateEntryDraft('notes', event.target.value)}
+                  placeholder="Road trip, towing, mostly city driving..."
+                />
+              </label>
+
+              <button className="primary-button" type="submit">
+                {editingEntryId ? 'Save changes' : '+ Save fuel entry'}
+              </button>
+            </form>
+          </section>
+        )}
+
+        {route === '/history' && (
+          <section className="history-panel screen-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">History</p>
+                <h2>{recentEntries.length} fuel entries</h2>
+              </div>
+            </div>
+
+            <div className="entry-list">
+              {recentEntries.map((entry) => (
+                <article className="entry-card" key={entry.id}>
+                  <div>
+                    <strong>{formatDate(entry.filledAt)}</strong>
+                    <span>
+                      {formatNumber(entry.gallons, 3)} gal ·{' '}
+                      {formatCurrency(entry.totalCost)}
+                    </span>
+                    <small>
+                      {entry.isFullTank ? 'Full tank' : 'Partial fill'}
+                    </small>
+                  </div>
+
+                  <div className="entry-metrics">
+                    <span>
+                      {entry.mpg ? `${formatNumber(entry.mpg)} MPG` : 'Pending MPG'}
+                    </span>
+                    <small>
+                      {entry.milesDriven
+                        ? `${entry.milesDriven} miles`
+                        : `${entry.odometer} mi`}
+                    </small>
+                  </div>
+
+                  <div className="entry-actions">
+                    <button
+                      type="button"
+                      title="Edit entry"
+                      onClick={() => editEntry(entry)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete entry"
+                      onClick={() => deleteEntry(entry.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {route === '/stats' && (
+          <section className="stats-panel screen-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Summary</p>
+                <h2>Current performance</h2>
+              </div>
+            </div>
+
+            <div className="stat-grid">
+              <article className="stat-card highlight">
+                <span>Latest MPG</span>
+                <strong>
+                  {latestFullEntry?.mpg ? formatNumber(latestFullEntry.mpg) : '--'}
+                </strong>
+              </article>
+              <article className="stat-card">
+                <span>Average MPG</span>
+                <strong>{chartEntries.length ? formatNumber(averageMpg) : '--'}</strong>
+              </article>
+              <article className="stat-card">
+                <span>Cost / mile</span>
+                <strong>{costPerMile ? formatCurrency(costPerMile) : '--'}</strong>
+              </article>
+              <article className="stat-card">
+                <span>This month</span>
+                <strong>{formatCurrency(monthlySpend)}</strong>
+              </article>
+            </div>
+
+            <div className="chart-wrap">
+              <div className="chart-heading">
+                <span>MPG trend</span>
+                <small>{chartEntries.length} full-tank intervals</small>
+              </div>
+              <div className="bar-chart" aria-label="MPG trend chart">
+                {chartEntries.length ? (
+                  chartEntries.map((entry) => (
+                    <div className="bar-item" key={entry.id}>
+                      <span
+                        className="bar"
+                        style={{
+                          height: `${Math.max(
+                            ((entry.mpg ?? 0) / maxMpg) * 100,
+                            8,
+                          )}%`,
+                        }}
+                        title={`${formatNumber(entry.mpg ?? 0)} MPG on ${formatDate(
+                          entry.filledAt,
+                        )}`}
+                      />
+                      <small>{entry.filledAt.slice(5).replace('-', '/')}</small>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty-state">Add two full-tank entries to see MPG.</p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {route === '/config' && (
+          <section className="vehicle-panel screen-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Vehicles</p>
+              <h2>{activeVehicles.length} active</h2>
+            </div>
+            <button
+              className="icon-button"
+              type="button"
+              title="Archive selected vehicle"
+              onClick={archiveVehicle}
+              disabled={activeVehicles.length < 2}
+            >
+              -
+            </button>
+          </div>
+
+          <div className="vehicle-list" aria-label="Vehicle selector">
+            {activeVehicles.map((vehicle) => (
+              <button
+                className={`vehicle-tile ${
+                  vehicle.id === selectedVehicle?.id ? 'selected' : ''
+                }`}
+                key={vehicle.id}
+                type="button"
+                onClick={() => selectVehicle(vehicle.id)}
+              >
+                <span>{vehicle.name}</span>
+                <small>
+                  {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
+                </small>
+              </button>
+            ))}
+          </div>
+
+          <form className="compact-form" onSubmit={submitVehicle}>
+            <label>
+              Name
+              <input
+                value={vehicleDraft.name}
+                onChange={(event) => updateVehicleDraft('name', event.target.value)}
+                placeholder="Truck, Civic, Work van"
+              />
+            </label>
+            <div className="field-row">
+              <label>
+                Make
+                <input
+                  value={vehicleDraft.make}
+                  onChange={(event) => updateVehicleDraft('make', event.target.value)}
+                  placeholder="Honda"
+                />
+              </label>
+              <label>
+                Model
+                <input
+                  value={vehicleDraft.model}
+                  onChange={(event) => updateVehicleDraft('model', event.target.value)}
+                  placeholder="CR-V"
+                />
+              </label>
+            </div>
+            <label>
+              Year
+              <input
+                value={vehicleDraft.year}
+                onChange={(event) => updateVehicleDraft('year', event.target.value)}
+                inputMode="numeric"
+                placeholder="2024"
+              />
+            </label>
+            <button className="secondary-button" type="submit">
+              + Add vehicle
+            </button>
+          </form>
+        </section>
+        )}
       </section>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <nav className="bottom-nav" aria-label="Primary navigation">
+        {navItems.map((item) => (
+          <button
+            aria-current={route === item.route ? 'page' : undefined}
+            className={route === item.route ? 'active' : ''}
+            key={item.route}
+            type="button"
+            onClick={() => navigate(item.route)}
+          >
+            <span>{item.symbol}</span>
+            {item.label}
+          </button>
+        ))}
+      </nav>
+    </main>
   )
 }
 
