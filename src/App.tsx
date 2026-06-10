@@ -74,10 +74,10 @@ const chartPadding = 22
 const initialVehicles: Vehicle[] = [
   {
     id: 'daily-driver',
-    name: 'Daily Driver',
-    make: 'Toyota',
-    model: 'RAV4',
-    year: '2021',
+    name: 'Ferrari California',
+    make: 'Ferrari',
+    model: 'California',
+    year: '2014',
     archived: false,
   },
 ]
@@ -660,6 +660,7 @@ function App() {
                         ? `${entry.milesDriven} miles`
                         : `${entry.odometer} mi`}
                     </small>
+                    {entry.notes && <p className="entry-note">{entry.notes}</p>}
                   </div>
 
                   <div className="entry-actions">
@@ -853,7 +854,7 @@ function App() {
                 <input
                   value={vehicleDraft.make}
                   onChange={(event) => updateVehicleDraft('make', event.target.value)}
-                  placeholder="Honda"
+                  placeholder="Ferrari"
                 />
               </label>
               <label>
@@ -861,7 +862,7 @@ function App() {
                 <input
                   value={vehicleDraft.model}
                   onChange={(event) => updateVehicleDraft('model', event.target.value)}
-                  placeholder="CR-V"
+                  placeholder="California"
                 />
               </label>
             </div>
@@ -871,7 +872,7 @@ function App() {
                 value={vehicleDraft.year}
                 onChange={(event) => updateVehicleDraft('year', event.target.value)}
                 inputMode="numeric"
-                placeholder="2024"
+                placeholder="2014"
               />
             </label>
             <button className="secondary-button" type="submit">

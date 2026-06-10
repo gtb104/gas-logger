@@ -487,6 +487,13 @@ button:focus-visible {
   color: var(--accent-strong);
 }
 
+.entry-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  margin: 6px 54px 0 0;
+}
+
 .entry-actions {
   display: flex;
   gap: 6px;
