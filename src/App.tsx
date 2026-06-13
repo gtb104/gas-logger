@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
+import { supabase, supabaseConfigError } from './supabase'
+import type { Session } from '@supabase/supabase-js'
 
 type Vehicle = {
   id: string
@@ -45,7 +47,11 @@ type DraftVehicle = {
   year: string
 }
 
-const storageKey = 'gas-logger:v1'
+type AppData = {
+  vehicles: Vehicle[]
+  entries: FuelEntry[]
+}
+
 const themeStorageKey = 'gas-logger:theme'
 
 type AppRoute = '/fillup' | '/history' | '/stats' | '/config'
@@ -204,32 +210,20 @@ function buildMetrics(entries: FuelEntry[]): EntryWithMetrics[] {
   })
 }
 
-function getStoredState() {
-  const stored = window.localStorage.getItem(storageKey)
-
-  if (!stored) {
-    return {
-      vehicles: initialVehicles,
-      entries: initialEntries,
-    }
+function getSeedAppData(): AppData {
+  return {
+    vehicles: initialVehicles,
+    entries: initialEntries,
   }
+}
 
-  try {
-    const parsed = JSON.parse(stored) as {
-      vehicles?: Vehicle[]
-      entries?: FuelEntry[]
-    }
+function getInitialAppData() {
+  // TODO: Replace this seed fallback with Supabase table reads once persistence is wired.
+  return getSeedAppData()
+}
 
-    return {
-      vehicles: parsed.vehicles?.length ? parsed.vehicles : initialVehicles,
-      entries: parsed.entries?.length ? parsed.entries : initialEntries,
-    }
-  } catch {
-    return {
-      vehicles: initialVehicles,
-      entries: initialEntries,
-    }
-  }
+function getUserInitials(email?: string) {
+  return (email?.slice(0, 2) || 'U').toUpperCase()
 }
 
 function getCurrentRoute(): AppRoute {
@@ -251,17 +245,178 @@ function getSystemTheme() {
 }
 
 function App() {
-  const storedState = useMemo(() => getStoredState(), [])
-  const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
+  const [session, setSession] = useState<Session | null>(null)
+  const [authLoading, setAuthLoading] = useState(Boolean(supabase))
+  const [email, setEmail] = useState('')
+  const [authMessage, setAuthMessage] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [isSendingLink, setIsSendingLink] = useState(false)
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(getStoredTheme)
-  const [vehicles, setVehicles] = useState<Vehicle[]>(storedState.vehicles)
-  const [entries, setEntries] = useState<FuelEntry[]>(storedState.entries)
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+
+    function applyTheme() {
+      const resolvedTheme = themePreference === 'auto' ? getSystemTheme() : themePreference
+
+      document.documentElement.dataset.theme = resolvedTheme
+      document.documentElement.style.colorScheme = resolvedTheme
+      window.localStorage.setItem(themeStorageKey, themePreference)
+    }
+
+    applyTheme()
+    mediaQuery.addEventListener('change', applyTheme)
+
+    return () => mediaQuery.removeEventListener('change', applyTheme)
+  }, [themePreference])
+
+  useEffect(() => {
+    if (!supabase) {
+      return
+    }
+
+    let isMounted = true
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (isMounted) {
+        setSession(data.session)
+        setAuthLoading(false)
+      }
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+      setAuthLoading(false)
+    })
+
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  async function sendMagicLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!supabase) {
+      setAuthError(supabaseConfigError)
+      return
+    }
+
+    setAuthError('')
+    setAuthMessage('')
+    setIsSendingLink(true)
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: `${window.location.origin}/fillup`,
+      },
+    })
+
+    setIsSendingLink(false)
+
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+
+    setAuthMessage('Check your email for a magic link to sign in.')
+  }
+
+  async function signOut() {
+    await supabase?.auth.signOut()
+    setSession(null)
+  }
+
+  if (authLoading) {
+    return (
+      <main className="app-shell auth-shell">
+        <section className="auth-panel">
+          <p className="eyebrow">Fuel log</p>
+          <h1>Loading your garage...</h1>
+        </section>
+      </main>
+    )
+  }
+
+  if (!session) {
+    return (
+      <main className="app-shell auth-shell">
+        <section className="auth-panel">
+          <p className="eyebrow">Fuel log</p>
+          <h1>Sign in</h1>
+          <p className="auth-copy">
+            Enter the email address that has been invited to this gas logger.
+          </p>
+
+          <form className="auth-form" onSubmit={sendMagicLink}>
+            <label>
+              Email
+              <input
+                autoComplete="email"
+                inputMode="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+                type="email"
+                value={email}
+              />
+            </label>
+            <button
+              className="primary-button"
+              disabled={isSendingLink || Boolean(supabaseConfigError)}
+              type="submit"
+            >
+              {isSendingLink ? 'Sending...' : 'Send magic link'}
+            </button>
+          </form>
+
+          {supabaseConfigError && <p className="auth-error">{supabaseConfigError}</p>}
+          {authError && <p className="auth-error">{authError}</p>}
+          {authMessage && <p className="auth-message">{authMessage}</p>}
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <AuthenticatedApp
+      key={session.user.id}
+      session={session}
+      onSignOut={signOut}
+      themePreference={themePreference}
+      setThemePreference={setThemePreference}
+    />
+  )
+}
+
+type AuthenticatedAppProps = {
+  session: Session
+  onSignOut: () => void
+  themePreference: ThemePreference
+  setThemePreference: (themePreference: ThemePreference) => void
+}
+
+function AuthenticatedApp({
+  session,
+  onSignOut,
+  themePreference,
+  setThemePreference,
+}: AuthenticatedAppProps) {
+  const initialAppData = useMemo(() => getInitialAppData(), [])
+  const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
+  const [vehicles, setVehicles] = useState<Vehicle[]>(initialAppData.vehicles)
+  const [entries, setEntries] = useState<FuelEntry[]>(initialAppData.entries)
   const [selectedVehicleId, setSelectedVehicleId] = useState(
-    storedState.vehicles[0]?.id ?? '',
+    initialAppData.vehicles[0]?.id ?? '',
   )
   const [entryDraft, setEntryDraft] = useState(
-    createEntryDraft(storedState.vehicles[0]?.id ?? ''),
+    createEntryDraft(initialAppData.vehicles[0]?.id ?? ''),
   )
   const [vehicleDraft, setVehicleDraft] = useState(newVehicleDraft)
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
@@ -334,27 +489,6 @@ function App() {
     linePoints.length > 1
       ? `${linePath} L ${linePoints.at(-1)?.x} ${chartBottom} L ${linePoints[0].x} ${chartBottom} Z`
       : ''
-
-  useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ vehicles, entries }))
-  }, [vehicles, entries])
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-
-    function applyTheme() {
-      const resolvedTheme = themePreference === 'auto' ? getSystemTheme() : themePreference
-
-      document.documentElement.dataset.theme = resolvedTheme
-      document.documentElement.style.colorScheme = resolvedTheme
-      window.localStorage.setItem(themeStorageKey, themePreference)
-    }
-
-    applyTheme()
-    mediaQuery.addEventListener('change', applyTheme)
-
-    return () => mediaQuery.removeEventListener('change', applyTheme)
-  }, [themePreference])
 
   useEffect(() => {
     if (window.location.pathname === '/') {
@@ -493,8 +627,11 @@ function App() {
         </div>
         {route === '/config' && (
           <div className="account-chip" aria-label="Current account">
-            <span>GG</span>
-            <small>{selectedVehicle?.name ?? 'No vehicle'}</small>
+            <span>{getUserInitials(session.user.email)}</span>
+            <small>{session.user.email}</small>
+            <button type="button" onClick={onSignOut}>
+              Sign out
+            </button>
           </div>
         )}
       </header>

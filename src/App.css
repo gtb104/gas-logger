@@ -5,6 +5,57 @@
   padding: 24px 24px 104px;
 }
 
+.auth-shell {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  padding-bottom: 24px;
+}
+
+.auth-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 16px;
+  max-width: 440px;
+  padding: 24px;
+  width: min(100%, 440px);
+}
+
+.auth-panel h1 {
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.auth-copy,
+.auth-error,
+.auth-message {
+  margin: 0;
+}
+
+.auth-copy {
+  color: var(--muted);
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-error {
+  color: var(--danger);
+  font-weight: 720;
+}
+
+.auth-message {
+  color: var(--accent-strong);
+  font-weight: 720;
+}
+
 .topbar {
   align-items: flex-start;
   display: flex;
@@ -52,6 +103,17 @@
 .vehicle-tile small,
 .chart-heading small {
   color: var(--muted);
+}
+
+.account-chip button {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 820;
+  min-height: 34px;
+  padding: 6px 10px;
 }
 
 .app-content {
