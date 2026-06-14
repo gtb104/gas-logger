@@ -56,6 +56,16 @@
   font-weight: 720;
 }
 
+.data-error {
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-weight: 720;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+
 .topbar {
   align-items: flex-start;
   display: flex;

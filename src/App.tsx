@@ -47,9 +47,26 @@ type DraftVehicle = {
   year: string
 }
 
-type AppData = {
-  vehicles: Vehicle[]
-  entries: FuelEntry[]
+type VehicleRow = {
+  id: string
+  user_id: string
+  name: string
+  make: string | null
+  model: string | null
+  year: string | null
+  archived: boolean
+}
+
+type FuelEntryRow = {
+  id: string
+  user_id: string
+  vehicle_id: string
+  filled_at: string
+  odometer: number | string
+  gallons: number | string
+  total_cost: number | string
+  is_full_tank: boolean
+  notes: string | null
 }
 
 const themeStorageKey = 'gas-logger:theme'
@@ -76,50 +93,6 @@ const today = new Date().toISOString().slice(0, 10)
 const chartWidth = 320
 const chartHeight = 180
 const chartPadding = 22
-
-const initialVehicles: Vehicle[] = [
-  {
-    id: 'daily-driver',
-    name: 'Ferrari California',
-    make: 'Ferrari',
-    model: 'California',
-    year: '2014',
-    archived: false,
-  },
-]
-
-const initialEntries: FuelEntry[] = [
-  {
-    id: 'entry-1',
-    vehicleId: 'daily-driver',
-    filledAt: '2026-04-18',
-    odometer: 42910,
-    gallons: 11.8,
-    totalCost: 41.18,
-    isFullTank: true,
-    notes: 'Baseline fill',
-  },
-  {
-    id: 'entry-2',
-    vehicleId: 'daily-driver',
-    filledAt: '2026-05-03',
-    odometer: 43245,
-    gallons: 12.1,
-    totalCost: 42.23,
-    isFullTank: true,
-    notes: '',
-  },
-  {
-    id: 'entry-3',
-    vehicleId: 'daily-driver',
-    filledAt: '2026-05-16',
-    odometer: 43582,
-    gallons: 11.4,
-    totalCost: 39.79,
-    isFullTank: true,
-    notes: 'Mostly commuting',
-  },
-]
 
 const newVehicleDraft: DraftVehicle = {
   name: '',
@@ -173,10 +146,6 @@ function getOneYearAgo() {
   return date
 }
 
-function makeId(prefix: string) {
-  return `${prefix}-${crypto.randomUUID()}`
-}
-
 function sortEntries(entries: FuelEntry[]) {
   return [...entries].sort((a, b) => {
     if (a.filledAt === b.filledAt) {
@@ -210,16 +179,36 @@ function buildMetrics(entries: FuelEntry[]): EntryWithMetrics[] {
   })
 }
 
-function getSeedAppData(): AppData {
+function mapVehicleRow(row: VehicleRow): Vehicle {
   return {
-    vehicles: initialVehicles,
-    entries: initialEntries,
+    id: row.id,
+    name: row.name,
+    make: row.make ?? '',
+    model: row.model ?? '',
+    year: row.year ?? '',
+    archived: row.archived,
   }
 }
 
-function getInitialAppData() {
-  // TODO: Replace this seed fallback with Supabase table reads once persistence is wired.
-  return getSeedAppData()
+function mapFuelEntryRow(row: FuelEntryRow): FuelEntry {
+  return {
+    id: row.id,
+    vehicleId: row.vehicle_id,
+    filledAt: row.filled_at,
+    odometer: Number(row.odometer),
+    gallons: Number(row.gallons),
+    totalCost: Number(row.total_cost),
+    isFullTank: row.is_full_tank,
+    notes: row.notes ?? '',
+  }
+}
+
+function getVehicleFallbackName(vehicle: Pick<Vehicle, 'year' | 'make' | 'model'>) {
+  return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')
+}
+
+function getVehicleDisplayName(vehicle: Vehicle) {
+  return vehicle.name.trim() || getVehicleFallbackName(vehicle) || 'Untitled vehicle'
 }
 
 function getUserInitials(email?: string) {
@@ -408,18 +397,19 @@ function AuthenticatedApp({
   themePreference,
   setThemePreference,
 }: AuthenticatedAppProps) {
-  const initialAppData = useMemo(() => getInitialAppData(), [])
   const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialAppData.vehicles)
-  const [entries, setEntries] = useState<FuelEntry[]>(initialAppData.entries)
-  const [selectedVehicleId, setSelectedVehicleId] = useState(
-    initialAppData.vehicles[0]?.id ?? '',
-  )
-  const [entryDraft, setEntryDraft] = useState(
-    createEntryDraft(initialAppData.vehicles[0]?.id ?? ''),
-  )
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [entries, setEntries] = useState<FuelEntry[]>([])
+  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [entryDraft, setEntryDraft] = useState(createEntryDraft(''))
   const [vehicleDraft, setVehicleDraft] = useState(newVehicleDraft)
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [isDataLoading, setIsDataLoading] = useState(true)
+  const [isSavingEntry, setIsSavingEntry] = useState(false)
+  const [isSavingVehicle, setIsSavingVehicle] = useState(false)
+  const [dataError, setDataError] = useState('')
+  const canAddVehicle =
+    vehicleDraft.make.trim().length > 0 || vehicleDraft.model.trim().length > 0
 
   const activeVehicles = vehicles.filter((vehicle) => !vehicle.archived)
   const selectedVehicle =
@@ -491,6 +481,75 @@ function AuthenticatedApp({
       : ''
 
   useEffect(() => {
+    if (!supabase) {
+      return
+    }
+
+    let isMounted = true
+    const client = supabase
+
+    async function loadAppData() {
+      setIsDataLoading(true)
+      setDataError('')
+
+      const [vehiclesResult, entriesResult] = await Promise.all([
+        client
+          .from('vehicles')
+          .select('id, user_id, name, make, model, year, archived')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: true }),
+        client
+          .from('fuel_entries')
+          .select(
+            'id, user_id, vehicle_id, filled_at, odometer, gallons, total_cost, is_full_tank, notes',
+          )
+          .eq('user_id', session.user.id)
+          .order('filled_at', { ascending: true })
+          .order('odometer', { ascending: true }),
+      ])
+
+      if (!isMounted) {
+        return
+      }
+
+      if (vehiclesResult.error || entriesResult.error) {
+        setDataError(
+          vehiclesResult.error?.message ??
+            entriesResult.error?.message ??
+            'Unable to load gas logger data.',
+        )
+        setVehicles([])
+        setEntries([])
+        setSelectedVehicleId('')
+        setEntryDraft(createEntryDraft(''))
+        setIsDataLoading(false)
+        return
+      }
+
+      const nextVehicles = ((vehiclesResult.data ?? []) as VehicleRow[]).map(
+        mapVehicleRow,
+      )
+      const nextEntries = ((entriesResult.data ?? []) as FuelEntryRow[]).map(
+        mapFuelEntryRow,
+      )
+      const firstActiveVehicle =
+        nextVehicles.find((vehicle) => !vehicle.archived) ?? nextVehicles[0]
+
+      setVehicles(nextVehicles)
+      setEntries(nextEntries)
+      setSelectedVehicleId(firstActiveVehicle?.id ?? '')
+      setEntryDraft(createEntryDraft(firstActiveVehicle?.id ?? ''))
+      setIsDataLoading(false)
+    }
+
+    loadAppData()
+
+    return () => {
+      isMounted = false
+    }
+  }, [session.user.id])
+
+  useEffect(() => {
     if (window.location.pathname === '/') {
       window.history.replaceState({}, '', '/fillup')
     }
@@ -529,17 +588,44 @@ function AuthenticatedApp({
     setEntryDraft((draft) => ({ ...draft, vehicleId }))
   }
 
-  function submitVehicle(event: FormEvent<HTMLFormElement>) {
+  async function submitVehicle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setDataError('')
 
-    const nextVehicle: Vehicle = {
-      id: makeId('vehicle'),
-      name: vehicleDraft.name.trim() || 'Untitled vehicle',
-      make: vehicleDraft.make.trim(),
-      model: vehicleDraft.model.trim(),
-      year: vehicleDraft.year.trim(),
-      archived: false,
+    if (!canAddVehicle) {
+      setDataError('Enter a make or model before adding a vehicle.')
+      return
     }
+
+    setIsSavingVehicle(true)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setIsSavingVehicle(false)
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('vehicles')
+      .insert({
+        user_id: session.user.id,
+        name: vehicleDraft.name.trim(),
+        make: vehicleDraft.make.trim() || null,
+        model: vehicleDraft.model.trim() || null,
+        year: vehicleDraft.year.trim() || null,
+        archived: false,
+      })
+      .select('id, user_id, name, make, model, year, archived')
+      .single()
+
+    setIsSavingVehicle(false)
+
+    if (error) {
+      setDataError(error.message)
+      return
+    }
+
+    const nextVehicle = mapVehicleRow(data as VehicleRow)
 
     setVehicles((currentVehicles) => [...currentVehicles, nextVehicle])
     setSelectedVehicleId(nextVehicle.id)
@@ -547,22 +633,60 @@ function AuthenticatedApp({
     setVehicleDraft(newVehicleDraft)
   }
 
-  function submitEntry(event: FormEvent<HTMLFormElement>) {
+  async function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
+    if (!entryDraft.vehicleId) {
+      setDataError('Add or select a vehicle before saving a fuel entry.')
+      return
+    }
+
+    setDataError('')
+    setIsSavingEntry(true)
 
     const gallons = Number(entryDraft.gallons)
     const totalCost = Number(entryDraft.totalCost)
-
-    const nextEntry: FuelEntry = {
-      id: editingEntryId ?? makeId('entry'),
-      vehicleId: entryDraft.vehicleId,
-      filledAt: entryDraft.filledAt,
+    const entryPayload = {
+      vehicle_id: entryDraft.vehicleId,
+      filled_at: entryDraft.filledAt,
       odometer: Number(entryDraft.odometer),
       gallons,
-      totalCost,
-      isFullTank: entryDraft.isFullTank,
-      notes: entryDraft.notes.trim(),
+      total_cost: totalCost,
+      is_full_tank: entryDraft.isFullTank,
+      notes: entryDraft.notes.trim() || null,
     }
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setIsSavingEntry(false)
+      return
+    }
+
+    const query = editingEntryId
+      ? supabase
+          .from('fuel_entries')
+          .update(entryPayload)
+          .eq('id', editingEntryId)
+          .eq('user_id', session.user.id)
+      : supabase.from('fuel_entries').insert({
+          ...entryPayload,
+          user_id: session.user.id,
+        })
+
+    const { data, error } = await query
+      .select(
+        'id, user_id, vehicle_id, filled_at, odometer, gallons, total_cost, is_full_tank, notes',
+      )
+      .single()
+
+    setIsSavingEntry(false)
+
+    if (error) {
+      setDataError(error.message)
+      return
+    }
+
+    const nextEntry = mapFuelEntryRow(data as FuelEntryRow)
 
     setEntries((currentEntries) => {
       if (editingEntryId) {
@@ -592,7 +716,22 @@ function AuthenticatedApp({
     navigate('/fillup')
   }
 
-  function deleteEntry(entryId: string) {
+  async function deleteEntry(entryId: string) {
+    setDataError('')
+
+    if (supabase) {
+      const { error } = await supabase
+        .from('fuel_entries')
+        .delete()
+        .eq('id', entryId)
+        .eq('user_id', session.user.id)
+
+      if (error) {
+        setDataError(error.message)
+        return
+      }
+    }
+
     setEntries((currentEntries) =>
       currentEntries.filter((entry) => entry.id !== entryId),
     )
@@ -602,9 +741,24 @@ function AuthenticatedApp({
     }
   }
 
-  function archiveVehicle() {
+  async function archiveVehicle() {
     if (!selectedVehicle || activeVehicles.length < 2) {
       return
+    }
+
+    setDataError('')
+
+    if (supabase) {
+      const { error } = await supabase
+        .from('vehicles')
+        .update({ archived: true })
+        .eq('id', selectedVehicle.id)
+        .eq('user_id', session.user.id)
+
+      if (error) {
+        setDataError(error.message)
+        return
+      }
     }
 
     setVehicles((currentVehicles) =>
@@ -637,12 +791,25 @@ function AuthenticatedApp({
       </header>
 
       <section className="app-content">
+        {dataError && <p className="data-error">{dataError}</p>}
+
+        {isDataLoading ? (
+          <section className="screen-panel entry-panel">
+            <p className="eyebrow">Loading</p>
+            <h2>Getting your vehicles and fill-ups...</h2>
+          </section>
+        ) : (
+          <>
         {route === '/fillup' && (
           <section className="entry-panel screen-panel">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">New fill-up</p>
-                <h2>{selectedVehicle?.name ?? 'Select a vehicle'}</h2>
+                <h2>
+                  {selectedVehicle
+                    ? getVehicleDisplayName(selectedVehicle)
+                    : 'Select a vehicle'}
+                </h2>
               </div>
               {editingEntryId && (
                 <button
@@ -664,7 +831,7 @@ function AuthenticatedApp({
                     type="button"
                     onClick={() => selectVehicle(vehicle.id)}
                   >
-                    {vehicle.name}
+                    {getVehicleDisplayName(vehicle)}
                   </button>
                 ))}
               </div>
@@ -763,8 +930,16 @@ function AuthenticatedApp({
                 />
               </label>
 
-              <button className="primary-button" type="submit">
-                {editingEntryId ? 'Save changes' : '+ Save fuel entry'}
+              <button
+                className="primary-button"
+                disabled={!selectedVehicle || isSavingEntry}
+                type="submit"
+              >
+                {isSavingEntry
+                  ? 'Saving...'
+                  : editingEntryId
+                    ? 'Save changes'
+                    : '+ Save fuel entry'}
               </button>
             </form>
           </section>
@@ -968,9 +1143,9 @@ function AuthenticatedApp({
                 type="button"
                 onClick={() => selectVehicle(vehicle.id)}
               >
-                <span>{vehicle.name}</span>
+                <span>{getVehicleDisplayName(vehicle)}</span>
                 <small>
-                  {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
+                  {getVehicleFallbackName(vehicle)}
                 </small>
               </button>
             ))}
@@ -1012,12 +1187,18 @@ function AuthenticatedApp({
                 placeholder="2014"
               />
             </label>
-            <button className="secondary-button" type="submit">
-              + Add vehicle
+            <button
+              className="secondary-button"
+              disabled={!canAddVehicle || isSavingVehicle}
+              type="submit"
+            >
+              {isSavingVehicle ? 'Adding...' : '+ Add vehicle'}
             </button>
           </form>
           </section>
         </section>
+        )}
+          </>
         )}
       </section>
 
