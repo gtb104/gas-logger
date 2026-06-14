@@ -516,6 +516,35 @@ button:focus-visible {
   margin: auto;
 }
 
+.route-empty-state {
+  align-items: start;
+  background: var(--surface-muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.route-empty-state.compact {
+  padding: 14px;
+}
+
+.route-empty-state strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.route-empty-state p {
+  margin: 0;
+}
+
+.route-empty-state .secondary-button {
+  margin-top: 4px;
+  width: fit-content;
+}
+
 .entry-list {
   display: grid;
   gap: 10px;

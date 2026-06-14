@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 import { supabase, supabaseConfigError } from './supabase'
@@ -67,6 +67,17 @@ type FuelEntryRow = {
   total_cost: number | string
   is_full_tank: boolean
   notes: string | null
+}
+
+type AppData = {
+  vehicles: Vehicle[]
+  entries: FuelEntry[]
+}
+
+type LoadAppDataOptions = {
+  showLoading?: boolean
+  preferredVehicleId?: string
+  resetDraft?: boolean
 }
 
 const themeStorageKey = 'gas-logger:theme'
@@ -209,6 +220,10 @@ function getVehicleFallbackName(vehicle: Pick<Vehicle, 'year' | 'make' | 'model'
 
 function getVehicleDisplayName(vehicle: Vehicle) {
   return vehicle.name.trim() || getVehicleFallbackName(vehicle) || 'Untitled vehicle'
+}
+
+function getDataErrorMessage(action: string) {
+  return `${action} Check your connection and try again.`
 }
 
 function getUserInitials(email?: string) {
@@ -480,16 +495,22 @@ function AuthenticatedApp({
       ? `${linePath} L ${linePoints.at(-1)?.x} ${chartBottom} L ${linePoints[0].x} ${chartBottom} Z`
       : ''
 
-  useEffect(() => {
-    if (!supabase) {
-      return
-    }
+  const loadAppData = useCallback(
+    async ({
+      showLoading = true,
+      preferredVehicleId,
+      resetDraft = true,
+    }: LoadAppDataOptions = {}): Promise<AppData | null> => {
+      if (!supabase) {
+        setDataError(supabaseConfigError)
+        return null
+      }
 
-    let isMounted = true
-    const client = supabase
+      const client = supabase
 
-    async function loadAppData() {
-      setIsDataLoading(true)
+      if (showLoading) {
+        setIsDataLoading(true)
+      }
       setDataError('')
 
       const [vehiclesResult, entriesResult] = await Promise.all([
@@ -508,22 +529,14 @@ function AuthenticatedApp({
           .order('odometer', { ascending: true }),
       ])
 
-      if (!isMounted) {
-        return
-      }
-
       if (vehiclesResult.error || entriesResult.error) {
-        setDataError(
-          vehiclesResult.error?.message ??
-            entriesResult.error?.message ??
-            'Unable to load gas logger data.',
-        )
+        setDataError(getDataErrorMessage('Unable to load your vehicles and fill-ups.'))
         setVehicles([])
         setEntries([])
         setSelectedVehicleId('')
         setEntryDraft(createEntryDraft(''))
         setIsDataLoading(false)
-        return
+        return null
       }
 
       const nextVehicles = ((vehiclesResult.data ?? []) as VehicleRow[]).map(
@@ -534,20 +547,44 @@ function AuthenticatedApp({
       )
       const firstActiveVehicle =
         nextVehicles.find((vehicle) => !vehicle.archived) ?? nextVehicles[0]
+      const preferredVehicle = nextVehicles.find(
+        (vehicle) => vehicle.id === preferredVehicleId && !vehicle.archived,
+      )
+      const nextSelectedVehicle = preferredVehicle ?? firstActiveVehicle
 
       setVehicles(nextVehicles)
       setEntries(nextEntries)
-      setSelectedVehicleId(firstActiveVehicle?.id ?? '')
-      setEntryDraft(createEntryDraft(firstActiveVehicle?.id ?? ''))
+      setSelectedVehicleId(nextSelectedVehicle?.id ?? '')
+      if (resetDraft) {
+        setEntryDraft(createEntryDraft(nextSelectedVehicle?.id ?? ''))
+      }
       setIsDataLoading(false)
+
+      return {
+        vehicles: nextVehicles,
+        entries: nextEntries,
+      }
+    },
+    [session.user.id],
+  )
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function load() {
+      const data = await loadAppData()
+
+      if (!isMounted || !data) {
+        return
+      }
     }
 
-    loadAppData()
+    load()
 
     return () => {
       isMounted = false
     }
-  }, [session.user.id])
+  }, [loadAppData])
 
   useEffect(() => {
     if (window.location.pathname === '/') {
@@ -588,6 +625,22 @@ function AuthenticatedApp({
     setEntryDraft((draft) => ({ ...draft, vehicleId }))
   }
 
+  function renderNoVehiclesMessage() {
+    return (
+      <div className="route-empty-state">
+        <strong>No vehicles yet</strong>
+        <p>Add a vehicle before logging a fill-up.</p>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => navigate('/config')}
+        >
+          Open config
+        </button>
+      </div>
+    )
+  }
+
   async function submitVehicle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setDataError('')
@@ -618,16 +671,21 @@ function AuthenticatedApp({
       .select('id, user_id, name, make, model, year, archived')
       .single()
 
-    setIsSavingVehicle(false)
-
     if (error) {
-      setDataError(error.message)
+      setIsSavingVehicle(false)
+      setDataError(getDataErrorMessage('Unable to add that vehicle.'))
       return
     }
 
     const nextVehicle = mapVehicleRow(data as VehicleRow)
 
-    setVehicles((currentVehicles) => [...currentVehicles, nextVehicle])
+    await loadAppData({
+      showLoading: false,
+      preferredVehicleId: nextVehicle.id,
+      resetDraft: false,
+    })
+
+    setIsSavingVehicle(false)
     setSelectedVehicleId(nextVehicle.id)
     setEntryDraft(createEntryDraft(nextVehicle.id))
     setVehicleDraft(newVehicleDraft)
@@ -679,24 +737,20 @@ function AuthenticatedApp({
       )
       .single()
 
-    setIsSavingEntry(false)
-
     if (error) {
-      setDataError(error.message)
+      setIsSavingEntry(false)
+      setDataError(getDataErrorMessage('Unable to save that fill-up.'))
       return
     }
 
     const nextEntry = mapFuelEntryRow(data as FuelEntryRow)
 
-    setEntries((currentEntries) => {
-      if (editingEntryId) {
-        return currentEntries.map((entry) =>
-          entry.id === editingEntryId ? nextEntry : entry,
-        )
-      }
-
-      return [...currentEntries, nextEntry]
+    await loadAppData({
+      showLoading: false,
+      preferredVehicleId: nextEntry.vehicleId,
     })
+
+    setIsSavingEntry(false)
     resetEntryDraft(nextEntry.vehicleId)
     navigate('/history')
   }
@@ -727,14 +781,16 @@ function AuthenticatedApp({
         .eq('user_id', session.user.id)
 
       if (error) {
-        setDataError(error.message)
+        setDataError(getDataErrorMessage('Unable to delete that fill-up.'))
         return
       }
     }
 
-    setEntries((currentEntries) =>
-      currentEntries.filter((entry) => entry.id !== entryId),
-    )
+    await loadAppData({
+      showLoading: false,
+      preferredVehicleId: selectedVehicleId,
+      resetDraft: false,
+    })
 
     if (entryId === editingEntryId) {
       resetEntryDraft()
@@ -756,21 +812,24 @@ function AuthenticatedApp({
         .eq('user_id', session.user.id)
 
       if (error) {
-        setDataError(error.message)
+        setDataError(getDataErrorMessage('Unable to archive that vehicle.'))
         return
       }
     }
 
-    setVehicles((currentVehicles) =>
-      currentVehicles.map((vehicle) =>
-        vehicle.id === selectedVehicle.id ? { ...vehicle, archived: true } : vehicle,
-      ),
-    )
     const nextVehicle = activeVehicles.find(
       (vehicle) => vehicle.id !== selectedVehicle.id,
     )
-    setSelectedVehicleId(nextVehicle?.id ?? '')
-    resetEntryDraft(nextVehicle?.id ?? '')
+    const refreshedData = await loadAppData({
+      showLoading: false,
+      preferredVehicleId: nextVehicle?.id,
+    })
+    const refreshedNextVehicle =
+      refreshedData?.vehicles.find((vehicle) => vehicle.id === nextVehicle?.id) ??
+      refreshedData?.vehicles.find((vehicle) => !vehicle.archived)
+
+    setSelectedVehicleId(refreshedNextVehicle?.id ?? '')
+    resetEntryDraft(refreshedNextVehicle?.id ?? '')
   }
 
   return (
@@ -822,6 +881,10 @@ function AuthenticatedApp({
               )}
             </div>
 
+            {activeVehicles.length === 0 ? (
+              renderNoVehiclesMessage()
+            ) : (
+              <>
             {activeVehicles.length > 1 && (
               <div className="segmented-control" aria-label="Vehicle selector">
                 {activeVehicles.map((vehicle) => (
@@ -942,6 +1005,8 @@ function AuthenticatedApp({
                     : '+ Save fuel entry'}
               </button>
             </form>
+              </>
+            )}
           </section>
         )}
 
@@ -954,8 +1019,17 @@ function AuthenticatedApp({
               </div>
             </div>
 
-            <div className="entry-list">
-              {recentEntries.map((entry) => (
+            {activeVehicles.length === 0 ? (
+              renderNoVehiclesMessage()
+            ) : (
+              <div className="entry-list">
+                {recentEntries.length === 0 ? (
+                  <div className="route-empty-state compact">
+                    <strong>No fill-ups yet</strong>
+                    <p>Saved fill-ups for the selected vehicle will appear here.</p>
+                  </div>
+                ) : (
+                  recentEntries.map((entry) => (
                 <article className="entry-card" key={entry.id}>
                   <div className="entry-main">
                     <strong>{formatDate(entry.filledAt)}</strong>
@@ -1003,8 +1077,10 @@ function AuthenticatedApp({
                     </button>
                   </div>
                 </article>
-              ))}
-            </div>
+                  ))
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -1017,6 +1093,10 @@ function AuthenticatedApp({
               </div>
             </div>
 
+            {activeVehicles.length === 0 ? (
+              renderNoVehiclesMessage()
+            ) : (
+              <>
             <div className="stat-grid">
               <article className="stat-card highlight">
                 <span>Average MPG</span>
@@ -1088,6 +1168,8 @@ function AuthenticatedApp({
                 )}
               </div>
             </div>
+              </>
+            )}
           </section>
         )}
 
@@ -1134,7 +1216,13 @@ function AuthenticatedApp({
           </div>
 
           <div className="vehicle-list" aria-label="Vehicle selector">
-            {activeVehicles.map((vehicle) => (
+            {activeVehicles.length === 0 ? (
+              <div className="route-empty-state compact">
+                <strong>No active vehicles</strong>
+                <p>Add a vehicle with a make or model to start logging fuel.</p>
+              </div>
+            ) : (
+              activeVehicles.map((vehicle) => (
               <button
                 className={`vehicle-tile ${
                   vehicle.id === selectedVehicle?.id ? 'selected' : ''
@@ -1148,7 +1236,8 @@ function AuthenticatedApp({
                   {getVehicleFallbackName(vehicle)}
                 </small>
               </button>
-            ))}
+              ))
+            )}
           </div>
 
           <form className="compact-form" onSubmit={submitVehicle}>
