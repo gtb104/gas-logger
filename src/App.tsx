@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import type { FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { supabase, supabaseConfigError } from './supabase'
-import type { Session } from '@supabase/supabase-js'
 
 type Vehicle = {
   id: string
@@ -226,8 +226,27 @@ function getDataErrorMessage(action: string) {
   return `${action} Check your connection and try again.`
 }
 
-function getUserInitials(email?: string) {
-  return (email?.slice(0, 2) || 'U').toUpperCase()
+function getUserDisplayName(user: Session['user']) {
+  const metadata = user.user_metadata
+
+  return metadata?.display_name?.trim() ?? ''
+}
+
+function getUserInitials(displayName: string) {
+  const nameParts = displayName
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (nameParts.length === 0) {
+    return 'U'
+  }
+
+  if (nameParts.length === 1) {
+    return nameParts[0].slice(0, 2).toUpperCase()
+  }
+
+  return `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
 }
 
 function getCurrentRoute(): AppRoute {
@@ -423,6 +442,8 @@ function AuthenticatedApp({
   const [isSavingEntry, setIsSavingEntry] = useState(false)
   const [isSavingVehicle, setIsSavingVehicle] = useState(false)
   const [dataError, setDataError] = useState('')
+  const userDisplayName = getUserDisplayName(session.user)
+  const userInitials = getUserInitials(userDisplayName)
   const canAddVehicle =
     vehicleDraft.make.trim().length > 0 || vehicleDraft.model.trim().length > 0
 
@@ -840,8 +861,7 @@ function AuthenticatedApp({
         </div>
         {route === '/config' && (
           <div className="account-chip" aria-label="Current account">
-            <span>{getUserInitials(session.user.email)}</span>
-            <small>{session.user.email}</small>
+            <span title={userDisplayName || 'Signed in user'}>{userInitials}</span>
             <button type="button" onClick={onSignOut}>
               Sign out
             </button>
