@@ -1,26 +1,26 @@
 :root {
-  --bg: #f7f8f4;
+  --bg: #f5f8fb;
   --surface: #ffffff;
-  --surface-muted: #eef2eb;
-  --field-bg: #fbfcf9;
+  --surface-muted: #edf3f8;
+  --field-bg: #fbfdff;
   --nav-bg: rgba(255, 255, 255, 0.92);
-  --text: #1d2522;
-  --muted: #66736d;
-  --border: #dbe2dc;
-  --accent: #196f5f;
-  --accent-strong: #0d4f45;
-  --accent-soft: #dceee8;
+  --text: #1f2933;
+  --muted: #637282;
+  --border: #d8e2ea;
+  --accent: #4682b4;
+  --accent-strong: #2f5f8a;
+  --accent-soft: #dcebf6;
   --on-accent: #ffffff;
   --gold: #d59f24;
   --danger: #b5483d;
   --danger-soft: #f7e7e4;
-  --tooltip-bg: #1d2522;
+  --tooltip-bg: #1f2933;
   --tooltip-text: #ffffff;
-  --chart-grid: rgba(102, 115, 109, 0.22);
-  --chart-area: rgba(25, 111, 95, 0.13);
-  --focus-ring: rgba(25, 111, 95, 0.18);
-  --soft-shadow: 0 3px 12px rgba(24, 39, 32, 0.08);
-  --shadow: 0 16px 45px rgba(24, 39, 32, 0.1);
+  --chart-grid: rgba(99, 114, 130, 0.22);
+  --chart-area: rgba(70, 130, 180, 0.13);
+  --focus-ring: rgba(70, 130, 180, 0.18);
+  --soft-shadow: 0 3px 12px rgba(31, 41, 51, 0.08);
+  --shadow: 0 16px 45px rgba(31, 41, 51, 0.1);
   --radius: 8px;
   --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -36,26 +36,26 @@
 }
 
 :root[data-theme='dark'] {
-  --bg: #101512;
-  --surface: #18201c;
-  --surface-muted: #202b26;
-  --field-bg: #111815;
-  --nav-bg: rgba(24, 32, 28, 0.94);
-  --text: #eef5ef;
-  --muted: #a0afa8;
-  --border: #34423b;
-  --accent: #62c7ad;
-  --accent-strong: #9ae3cf;
-  --accent-soft: #173f36;
-  --on-accent: #08251f;
+  --bg: #0f141b;
+  --surface: #161e28;
+  --surface-muted: #1d2935;
+  --field-bg: #111923;
+  --nav-bg: rgba(22, 30, 40, 0.94);
+  --text: #eef4f8;
+  --muted: #9daebe;
+  --border: #2f3d4c;
+  --accent: #7fb6df;
+  --accent-strong: #b5d8f0;
+  --accent-soft: #17334a;
+  --on-accent: #061522;
   --gold: #e4b849;
   --danger: #f18a80;
   --danger-soft: #3d211f;
-  --tooltip-bg: #eef5ef;
-  --tooltip-text: #101512;
-  --chart-grid: rgba(160, 175, 168, 0.24);
-  --chart-area: rgba(98, 199, 173, 0.14);
-  --focus-ring: rgba(98, 199, 173, 0.22);
+  --tooltip-bg: #eef4f8;
+  --tooltip-text: #0f141b;
+  --chart-grid: rgba(157, 174, 190, 0.24);
+  --chart-area: rgba(127, 182, 223, 0.14);
+  --focus-ring: rgba(127, 182, 223, 0.22);
   --soft-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
   --shadow: 0 16px 45px rgba(0, 0, 0, 0.34);
 }
