@@ -88,10 +88,10 @@ type ThemePreference = 'light' | 'dark' | 'auto'
 const routes: AppRoute[] = ['/fillup', '/history', '/stats', '/config']
 
 const navItems: Array<{ label: string; route: AppRoute; symbol: string }> = [
-  { label: 'Fill-up', route: '/fillup', symbol: '+' },
+  { label: 'Fill-up', route: '/fillup', symbol: '➕' },
   { label: 'History', route: '/history', symbol: 'H' },
-  { label: 'Stats', route: '/stats', symbol: '%' },
-  { label: 'Config', route: '/config', symbol: '*' },
+  { label: 'Stats', route: '/stats', symbol: '𝛴' },
+  { label: 'Config', route: '/config', symbol: '⚙' },
 ]
 
 const themeOptions: Array<{ label: string; value: ThemePreference }> = [
@@ -271,9 +271,13 @@ function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(Boolean(supabase))
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [isResetMode, setIsResetMode] = useState(false)
+  const [needsPasswordUpdate, setNeedsPasswordUpdate] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
   const [authError, setAuthError] = useState('')
-  const [isSendingLink, setIsSendingLink] = useState(false)
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false)
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(getStoredTheme)
 
@@ -310,7 +314,11 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setNeedsPasswordUpdate(true)
+        setAuthMessage('Enter a new password to finish resetting your account.')
+      }
       setSession(nextSession)
       setAuthLoading(false)
     })
@@ -321,7 +329,7 @@ function App() {
     }
   }, [])
 
-  async function sendMagicLink(event: FormEvent<HTMLFormElement>) {
+  async function signInWithPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     if (!supabase) {
@@ -331,29 +339,83 @@ function App() {
 
     setAuthError('')
     setAuthMessage('')
-    setIsSendingLink(true)
+    setIsAuthSubmitting(true)
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: `${window.location.origin}/fillup`,
-      },
+      password,
     })
 
-    setIsSendingLink(false)
+    setIsAuthSubmitting(false)
 
     if (error) {
       setAuthError(error.message)
       return
     }
 
-    setAuthMessage('Check your email for a magic link to sign in.')
+    setPassword('')
+  }
+
+  async function sendPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!supabase) {
+      setAuthError(supabaseConfigError)
+      return
+    }
+
+    setAuthError('')
+    setAuthMessage('')
+    setIsAuthSubmitting(true)
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/fillup`,
+    })
+
+    setIsAuthSubmitting(false)
+
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+
+    setAuthMessage('Check your email for a password reset link.')
+  }
+
+  async function updatePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!supabase) {
+      setAuthError(supabaseConfigError)
+      return
+    }
+
+    setAuthError('')
+    setAuthMessage('')
+    setIsAuthSubmitting(true)
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    })
+
+    setIsAuthSubmitting(false)
+
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+
+    setNewPassword('')
+    setNeedsPasswordUpdate(false)
+    setAuthMessage('Password updated.')
   }
 
   async function signOut() {
     await supabase?.auth.signOut()
     setSession(null)
+    setNeedsPasswordUpdate(false)
+    setPassword('')
+    setNewPassword('')
   }
 
   if (authLoading) {
@@ -367,17 +429,59 @@ function App() {
     )
   }
 
+  if (session && needsPasswordUpdate) {
+    return (
+      <main className="app-shell auth-shell">
+        <section className="auth-panel">
+          <p className="eyebrow">Fuel log</p>
+          <h1>Set new password</h1>
+          <p className="auth-copy">Choose a new password for this account.</p>
+
+          <form className="auth-form" onSubmit={updatePassword}>
+            <label>
+              New password
+              <input
+                autoComplete="new-password"
+                minLength={6}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+                type="password"
+                value={newPassword}
+              />
+            </label>
+            <button
+              className="primary-button"
+              disabled={isAuthSubmitting || Boolean(supabaseConfigError)}
+              type="submit"
+            >
+              {isAuthSubmitting ? 'Saving...' : 'Save password'}
+            </button>
+          </form>
+
+          {supabaseConfigError && <p className="auth-error">{supabaseConfigError}</p>}
+          {authError && <p className="auth-error">{authError}</p>}
+          {authMessage && <p className="auth-message">{authMessage}</p>}
+        </section>
+      </main>
+    )
+  }
+
   if (!session) {
     return (
       <main className="app-shell auth-shell">
         <section className="auth-panel">
           <p className="eyebrow">Fuel log</p>
-          <h1>Sign in</h1>
+          <h1>{isResetMode ? 'Reset password' : 'Sign in'}</h1>
           <p className="auth-copy">
-            Enter the email address that has been invited to this gas logger.
+            {isResetMode
+              ? 'Enter your invited email address and we will send a reset link.'
+              : 'Enter the invited email address and password for this gas logger.'}
           </p>
 
-          <form className="auth-form" onSubmit={sendMagicLink}>
+          <form
+            className="auth-form"
+            onSubmit={isResetMode ? sendPasswordReset : signInWithPassword}
+          >
             <label>
               Email
               <input
@@ -390,14 +494,46 @@ function App() {
                 value={email}
               />
             </label>
+            {!isResetMode && (
+              <label>
+                Password
+                <input
+                  autoComplete="current-password"
+                  minLength={6}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  type="password"
+                  value={password}
+                />
+              </label>
+            )}
             <button
               className="primary-button"
-              disabled={isSendingLink || Boolean(supabaseConfigError)}
+              disabled={isAuthSubmitting || Boolean(supabaseConfigError)}
               type="submit"
             >
-              {isSendingLink ? 'Sending...' : 'Send magic link'}
+              {isAuthSubmitting
+                ? isResetMode
+                  ? 'Sending...'
+                  : 'Signing in...'
+                : isResetMode
+                  ? 'Send reset link'
+                  : 'Sign in'}
             </button>
           </form>
+
+          <button
+            className="auth-mode-button"
+            type="button"
+            onClick={() => {
+              setIsResetMode((currentMode) => !currentMode)
+              setAuthError('')
+              setAuthMessage('')
+              setPassword('')
+            }}
+          >
+            {isResetMode ? 'Back to sign in' : 'Forgot password?'}
+          </button>
 
           {supabaseConfigError && <p className="auth-error">{supabaseConfigError}</p>}
           {authError && <p className="auth-error">{authError}</p>}

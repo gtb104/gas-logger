@@ -46,6 +46,16 @@
   gap: 12px;
 }
 
+.auth-mode-button {
+  background: transparent;
+  border: 0;
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+  font-weight: 800;
+  justify-self: start;
+  padding: 0;
+}
+
 .auth-error {
   color: var(--danger);
   font-weight: 720;
@@ -674,24 +684,15 @@ button:focus-visible {
 
 .bottom-nav button span {
   align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 999px;
   display: inline-flex;
-  font-size: 0.78rem;
+  font-size: 1.5rem;
   height: 24px;
   justify-content: center;
-  width: 24px;
 }
 
 .bottom-nav button.active {
   background: var(--accent-soft);
   color: var(--accent-strong);
-}
-
-.bottom-nav button.active span {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
 }
 
 @media (max-width: 760px) {
