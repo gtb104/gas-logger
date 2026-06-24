@@ -855,19 +855,16 @@ function AuthenticatedApp({
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Fuel log</p>
-        </div>
-        {route === '/config' && (
+      {route === '/config' && (
+        <header className="topbar">
           <div className="account-chip" aria-label="Current account">
             <span title={userDisplayName || 'Signed in user'}>{userInitials}</span>
             <button type="button" onClick={onSignOut}>
               Sign out
             </button>
           </div>
-        )}
-      </header>
+        </header>
+      )}
 
       <section className="app-content">
         {dataError && <p className="data-error">{dataError}</p>}
