@@ -281,6 +281,7 @@ label {
   font-size: 0.82rem;
   font-weight: 760;
   gap: 6px;
+  min-width: 0;
 }
 
 input,
@@ -290,9 +291,22 @@ textarea {
   border-radius: var(--radius);
   color: var(--text);
   min-height: 44px;
+  min-width: 0;
   outline: none;
   padding: 10px 12px;
+  text-align: left;
   width: 100%;
+}
+
+input[type='date'] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type='date']::-webkit-date-and-time-value {
+  display: block;
+  min-width: 0;
+  text-align: left;
 }
 
 textarea {
