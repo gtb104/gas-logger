@@ -24,7 +24,14 @@ type FuelEntry = {
   notes: string
 }
 
-type EntryWithMetrics = FuelEntry & {
+type EstimatedFuelEntry = FuelEntry & {
+  isEstimated: true
+  estimateSource: 'auto-gap'
+}
+
+type DisplayFuelEntry = FuelEntry | EstimatedFuelEntry
+
+type EntryWithMetrics = DisplayFuelEntry & {
   milesDriven: number | null
   mpg: number | null
   costPerMile: number | null
@@ -104,6 +111,8 @@ const today = new Date().toISOString().slice(0, 10)
 const chartWidth = 320
 const chartHeight = 180
 const chartPadding = 22
+const missedFillupThreshold = 1.65
+const maxEstimatedMissedFillups = 6
 
 const newVehicleDraft: DraftVehicle = {
   name: '',
@@ -167,8 +176,119 @@ function sortEntries(entries: FuelEntry[]) {
   })
 }
 
-function buildMetrics(entries: FuelEntry[]): EntryWithMetrics[] {
-  let previousFull: FuelEntry | null = null
+function isAutoEstimatedEntry(entry: FuelEntry) {
+  return entry.id.startsWith('auto-estimate:')
+}
+
+function getMean(values: number[]) {
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0
+}
+
+function getMedian(values: number[]) {
+  if (!values.length) {
+    return 0
+  }
+
+  const sortedValues = [...values].sort((a, b) => a - b)
+  const middleIndex = Math.floor(sortedValues.length / 2)
+
+  return sortedValues.length % 2
+    ? sortedValues[middleIndex]
+    : (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date)
+
+  nextDate.setDate(nextDate.getDate() + days)
+  return nextDate
+}
+
+function toInputDate(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function buildEstimatedMissedEntries(entries: FuelEntry[]): DisplayFuelEntry[] {
+  const sortedEntries = sortEntries(entries)
+  const fullEntries = sortedEntries.filter((entry) => entry.isFullTank)
+  const baselineIntervals = fullEntries
+    .slice(1)
+    .map((entry, index) => entry.odometer - fullEntries[index].odometer)
+    .filter((miles) => miles > 0)
+  const intervals = baselineIntervals
+  const medianInterval = getMedian(intervals)
+  const normalIntervals = intervals.filter(
+    (miles) => miles <= medianInterval * missedFillupThreshold,
+  )
+  const averageMiles = Math.round(getMean(normalIntervals.length ? normalIntervals : intervals))
+  const gallonSamples = fullEntries
+    .map((entry) => entry.gallons)
+    .filter((gallons) => gallons > 0)
+  const costSamples = fullEntries
+    .map((entry) => entry.totalCost)
+    .filter((totalCost) => totalCost > 0)
+  const averageGallons = getMean(gallonSamples)
+  const averageCost = getMean(costSamples)
+
+  if (!averageMiles) {
+    return sortedEntries
+  }
+
+  const estimatedEntries: EstimatedFuelEntry[] = []
+
+  fullEntries.slice(1).forEach((entry, index) => {
+    const previousEntry = fullEntries[index]
+    const milesBetweenFillups = entry.odometer - previousEntry.odometer
+    const estimatedCount = Math.min(
+      maxEstimatedMissedFillups,
+      Math.max(0, Math.round(milesBetweenFillups / averageMiles) - 1),
+    )
+
+    if (
+      estimatedCount === 0 ||
+      milesBetweenFillups < averageMiles * missedFillupThreshold
+    ) {
+      return
+    }
+
+    const previousDate = getEntryDate(previousEntry)
+    const nextDate = getEntryDate(entry)
+    const daysBetweenFillups =
+      (nextDate.getTime() - previousDate.getTime()) / 86_400_000
+    const estimatedMilesInterval = milesBetweenFillups / (estimatedCount + 1)
+
+    for (let index = 1; index <= estimatedCount; index += 1) {
+      const estimatedOdometer = Math.round(
+        previousEntry.odometer + estimatedMilesInterval * index,
+      )
+      const estimatedDate = Number.isFinite(daysBetweenFillups)
+        ? addDays(previousDate, Math.round((daysBetweenFillups / (estimatedCount + 1)) * index))
+        : previousDate
+
+      estimatedEntries.push({
+        id: `auto-estimate:${previousEntry.id}:${entry.id}:${index}`,
+        vehicleId: entry.vehicleId,
+        filledAt: toInputDate(estimatedDate),
+        odometer: estimatedOdometer,
+        gallons: averageGallons || entry.gallons,
+        totalCost: averageCost,
+        isFullTank: true,
+        isEstimated: true,
+        notes: `Automatically estimated missed fill-up between ${formatDate(
+          previousEntry.filledAt,
+        )} and ${formatDate(entry.filledAt)}.`,
+        estimateSource: 'auto-gap',
+      })
+    }
+  })
+
+  return sortEntries([...sortedEntries, ...estimatedEntries])
+}
+
+function buildMetrics(entries: DisplayFuelEntry[]): EntryWithMetrics[] {
+  let previousFull: DisplayFuelEntry | null = null
 
   return sortEntries(entries).map((entry) => {
     const milesDriven =
@@ -574,6 +694,7 @@ function AuthenticatedApp({
   const [entryDraft, setEntryDraft] = useState(createEntryDraft(''))
   const [vehicleDraft, setVehicleDraft] = useState(newVehicleDraft)
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
   const [isDataLoading, setIsDataLoading] = useState(true)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
   const [isSavingVehicle, setIsSavingVehicle] = useState(false)
@@ -589,9 +710,13 @@ function AuthenticatedApp({
   const selectedEntries = entries.filter(
     (entry) => entry.vehicleId === selectedVehicle?.id,
   )
-  const entriesWithMetrics = useMemo(
-    () => buildMetrics(selectedEntries),
+  const displayEntries = useMemo(
+    () => buildEstimatedMissedEntries(selectedEntries),
     [selectedEntries],
+  )
+  const entriesWithMetrics = useMemo(
+    () => buildMetrics(displayEntries),
+    [displayEntries],
   )
   const recentEntries = [...entriesWithMetrics].reverse()
   const chartEntries = entriesWithMetrics.filter((entry) => entry.mpg)
@@ -601,7 +726,7 @@ function AuthenticatedApp({
   const averageMpg =
     chartEntries.reduce((sum, entry) => sum + (entry.mpg ?? 0), 0) /
     (chartEntries.length || 1)
-  const totalSpend = selectedEntries.reduce((sum, entry) => sum + entry.totalCost, 0)
+  const totalSpend = displayEntries.reduce((sum, entry) => sum + entry.totalCost, 0)
   const totalMiles = entriesWithMetrics.reduce(
     (sum, entry) => sum + (entry.milesDriven ?? 0),
     0,
@@ -775,6 +900,7 @@ function AuthenticatedApp({
   function resetEntryDraft(vehicleId = selectedVehicle?.id ?? '') {
     setEntryDraft(createEntryDraft(vehicleId))
     setEditingEntryId(null)
+    setIsConvertingEstimate(false)
   }
 
   function selectVehicle(vehicleId: string) {
@@ -913,7 +1039,8 @@ function AuthenticatedApp({
   }
 
   function editEntry(entry: FuelEntry) {
-    setEditingEntryId(entry.id)
+    setEditingEntryId(isAutoEstimatedEntry(entry) ? null : entry.id)
+    setIsConvertingEstimate(isAutoEstimatedEntry(entry))
     setEntryDraft({
       vehicleId: entry.vehicleId,
       filledAt: entry.filledAt,
@@ -1034,6 +1161,13 @@ function AuthenticatedApp({
               )}
             </div>
 
+            {isConvertingEstimate && (
+              <div className="estimate-notice">
+                This started as an estimated missed fill-up. Saving it will store the
+                values as a real entry.
+              </div>
+            )}
+
             {activeVehicles.length === 0 ? (
               renderNoVehiclesMessage()
             ) : (
@@ -1153,6 +1287,8 @@ function AuthenticatedApp({
               >
                 {isSavingEntry
                   ? 'Saving...'
+                  : isConvertingEstimate
+                    ? 'Save real entry'
                   : editingEntryId
                     ? 'Save changes'
                     : '+ Save fuel entry'}
@@ -1191,6 +1327,12 @@ function AuthenticatedApp({
                       {formatCurrency(entry.totalCost)}
                     </span>
                     <small>
+                      {isAutoEstimatedEntry(entry) && (
+                        <>
+                          <span className="entry-badge">Estimated</span>
+                          {' · '}
+                        </>
+                      )}
                       {entry.isFullTank ? 'Full tank' : 'Partial fill'}
                       {' · '}
                       {entry.mpg ? `${formatNumber(entry.mpg)} MPG` : 'Pending MPG'}
@@ -1214,20 +1356,22 @@ function AuthenticatedApp({
                         <path d="m13.5 6 4.5 4.5" />
                       </svg>
                     </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete entry from ${formatDate(entry.filledAt)}`}
-                      title="Delete entry"
-                      onClick={() => deleteEntry(entry.id)}
-                    >
-                      <svg aria-hidden="true" viewBox="0 0 24 24">
-                        <path d="M4 7h16" />
-                        <path d="M10 11v6" />
-                        <path d="M14 11v6" />
-                        <path d="M6 7l1 13h10l1-13" />
-                        <path d="M9 7V4h6v3" />
-                      </svg>
-                    </button>
+                    {!isAutoEstimatedEntry(entry) && (
+                      <button
+                        type="button"
+                        aria-label={`Delete entry from ${formatDate(entry.filledAt)}`}
+                        title="Delete entry"
+                        onClick={() => deleteEntry(entry.id)}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 24 24">
+                          <path d="M4 7h16" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                          <path d="M6 7l1 13h10l1-13" />
+                          <path d="M9 7V4h6v3" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 </article>
                   ))

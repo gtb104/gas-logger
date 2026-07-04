@@ -339,6 +339,17 @@ button:focus-visible {
   width: auto;
 }
 
+.estimate-notice {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: var(--radius);
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  font-weight: 720;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+}
+
 .info-tooltip {
   align-items: center;
   background: var(--surface);
@@ -610,6 +621,18 @@ button:focus-visible {
 
 .entry-main small {
   color: var(--accent-strong);
+}
+
+.entry-card .entry-badge {
+  background: var(--accent-soft);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  display: inline-flex;
+  font-size: 0.7rem;
+  font-weight: 850;
+  line-height: 1;
+  padding: 3px 7px;
+  vertical-align: middle;
 }
 
 .entry-note {
