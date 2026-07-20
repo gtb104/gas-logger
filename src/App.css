@@ -290,12 +290,20 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
+  font-size: 1rem;
+  line-height: 1.35;
   min-height: 44px;
   min-width: 0;
   outline: none;
   padding: 10px 12px;
   text-align: left;
   width: 100%;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.52;
 }
 
 input[type='date'] {
