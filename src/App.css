@@ -76,6 +76,17 @@
   padding: 10px 12px;
 }
 
+.offline-banner {
+  background: color-mix(in srgb, var(--gold) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--border));
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 760;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+
 .topbar {
   align-items: flex-start;
   display: flex;

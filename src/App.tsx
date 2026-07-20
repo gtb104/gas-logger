@@ -390,6 +390,7 @@ function getSystemTheme() {
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(Boolean(supabase))
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -400,6 +401,20 @@ function App() {
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false)
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(getStoredTheme)
+
+  useEffect(() => {
+    function updateOnlineStatus() {
+      setIsOnline(navigator.onLine)
+    }
+
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
+    }
+  }, [])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -666,6 +681,7 @@ function App() {
   return (
     <AuthenticatedApp
       key={session.user.id}
+      isOnline={isOnline}
       session={session}
       onSignOut={signOut}
       themePreference={themePreference}
@@ -675,6 +691,7 @@ function App() {
 }
 
 type AuthenticatedAppProps = {
+  isOnline: boolean
   session: Session
   onSignOut: () => void
   themePreference: ThemePreference
@@ -682,6 +699,7 @@ type AuthenticatedAppProps = {
 }
 
 function AuthenticatedApp({
+  isOnline,
   session,
   onSignOut,
   themePreference,
@@ -977,6 +995,11 @@ function AuthenticatedApp({
   async function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
+    if (!isOnline) {
+      setDataError('You are offline. Reconnect before saving a fuel entry.')
+      return
+    }
+
     if (!entryDraft.vehicleId) {
       setDataError('Add or select a vehicle before saving a fuel entry.')
       return
@@ -1130,6 +1153,11 @@ function AuthenticatedApp({
       )}
 
       <section className="app-content">
+        {!isOnline && (
+          <div className="offline-banner" role="status">
+            You are offline. Viewing is available, but saving is disabled.
+          </div>
+        )}
         {dataError && <p className="data-error">{dataError}</p>}
 
         {isDataLoading ? (
@@ -1282,7 +1310,7 @@ function AuthenticatedApp({
 
               <button
                 className="primary-button"
-                disabled={!selectedVehicle || isSavingEntry}
+                disabled={!selectedVehicle || isSavingEntry || !isOnline}
                 type="submit"
               >
                 {isSavingEntry
