@@ -623,7 +623,6 @@ function App() {
                 autoComplete="email"
                 inputMode="email"
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
                 required
                 type="email"
                 value={email}
@@ -1239,7 +1238,6 @@ function AuthenticatedApp({
                     onChange={(event) =>
                       updateEntryDraft('odometer', event.target.value)
                     }
-                    placeholder="43890"
                   />
                 </label>
               </div>
@@ -1257,7 +1255,6 @@ function AuthenticatedApp({
                     onChange={(event) =>
                       updateEntryDraft('gallons', event.target.value)
                     }
-                    placeholder="12.400"
                   />
                 </label>
                 <label>
@@ -1272,7 +1269,6 @@ function AuthenticatedApp({
                     onChange={(event) =>
                       updateEntryDraft('totalCost', event.target.value)
                     }
-                    placeholder="43.50"
                   />
                 </label>
               </div>
@@ -1304,7 +1300,6 @@ function AuthenticatedApp({
                 <textarea
                   value={entryDraft.notes}
                   onChange={(event) => updateEntryDraft('notes', event.target.value)}
-                  placeholder="Road trip, towing, mostly city driving..."
                 />
               </label>
 
@@ -1571,7 +1566,6 @@ function AuthenticatedApp({
               <input
                 value={vehicleDraft.name}
                 onChange={(event) => updateVehicleDraft('name', event.target.value)}
-                placeholder="Truck, Civic, Work van"
               />
             </label>
             <div className="field-row">
@@ -1580,7 +1574,6 @@ function AuthenticatedApp({
                 <input
                   value={vehicleDraft.make}
                   onChange={(event) => updateVehicleDraft('make', event.target.value)}
-                  placeholder="Ferrari"
                 />
               </label>
               <label>
@@ -1588,7 +1581,6 @@ function AuthenticatedApp({
                 <input
                   value={vehicleDraft.model}
                   onChange={(event) => updateVehicleDraft('model', event.target.value)}
-                  placeholder="California"
                 />
               </label>
             </div>
@@ -1598,7 +1590,6 @@ function AuthenticatedApp({
                 value={vehicleDraft.year}
                 onChange={(event) => updateVehicleDraft('year', event.target.value)}
                 inputMode="numeric"
-                placeholder="2014"
               />
             </label>
             <button
