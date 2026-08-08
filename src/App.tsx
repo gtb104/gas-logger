@@ -152,6 +152,12 @@ function formatNumber(value: number, digits = 1) {
   }).format(value)
 }
 
+function formatSignedNumber(value: number, digits = 1) {
+  const formatted = formatNumber(Math.abs(value), digits)
+
+  return `${value >= 0 ? '+' : '-'}${formatted}`
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -168,6 +174,13 @@ function getOneYearAgo() {
   const date = new Date()
 
   date.setFullYear(date.getFullYear() - 1)
+  return date
+}
+
+function getDaysAgo(days: number) {
+  const date = new Date()
+
+  date.setDate(date.getDate() - days)
   return date
 }
 
@@ -745,15 +758,33 @@ function AuthenticatedApp({
   const yearlyChartEntries = chartEntries.filter(
     (entry) => getEntryDate(entry) >= getOneYearAgo(),
   )
+  const recentMpgEntries = chartEntries.slice(-3)
   const averageMpg =
     chartEntries.reduce((sum, entry) => sum + (entry.mpg ?? 0), 0) /
     (chartEntries.length || 1)
-  const totalSpend = displayEntries.reduce((sum, entry) => sum + entry.totalCost, 0)
-  const totalMiles = entriesWithMetrics.reduce(
-    (sum, entry) => sum + (entry.milesDriven ?? 0),
-    0,
+  const recentMpg =
+    recentMpgEntries.reduce((sum, entry) => sum + (entry.mpg ?? 0), 0) /
+    (recentMpgEntries.length || 1)
+  const recentMpgChange =
+    recentMpgEntries.length && chartEntries.length ? recentMpg - averageMpg : 0
+  const entriesWithMiles = entriesWithMetrics.filter(
+    (entry) => entry.milesDriven && entry.milesDriven > 0,
   )
-  const costPerMile = totalMiles > 0 ? totalSpend / totalMiles : 0
+  const averageMilesPerFillup =
+    entriesWithMiles.reduce((sum, entry) => sum + (entry.milesDriven ?? 0), 0) /
+    (entriesWithMiles.length || 1)
+  const paidEntries = displayEntries.filter((entry) => entry.totalCost > 0)
+  const averageCostPerFillup =
+    paidEntries.reduce((sum, entry) => sum + entry.totalCost, 0) /
+    (paidEntries.length || 1)
+  const thirtyDaysAgo = getDaysAgo(30)
+  const oneYearAgo = getOneYearAgo()
+  const spendLast30Days = displayEntries
+    .filter((entry) => getEntryDate(entry) >= thirtyDaysAgo)
+    .reduce((sum, entry) => sum + entry.totalCost, 0)
+  const spendLastYear = displayEntries
+    .filter((entry) => getEntryDate(entry) >= oneYearAgo)
+    .reduce((sum, entry) => sum + entry.totalCost, 0)
   const yearlyMpgValues = yearlyChartEntries.map((entry) => entry.mpg ?? 0)
   const minChartMpg = yearlyMpgValues.length
     ? Math.max(0, Math.floor(Math.min(...yearlyMpgValues) - 2))
@@ -1433,13 +1464,46 @@ function AuthenticatedApp({
             ) : (
               <>
             <div className="stat-grid">
-              <article className="stat-card highlight">
-                <span>Average MPG</span>
-                <strong>{chartEntries.length ? formatNumber(averageMpg) : '--'}</strong>
+              <article className="stat-card">
+                <span>Recent MPG</span>
+                <strong>{recentMpgEntries.length ? formatNumber(recentMpg) : '--'}</strong>
+                <small>
+                  {recentMpgEntries.length && chartEntries.length
+                    ? `${formatSignedNumber(recentMpgChange)} vs average`
+                    : 'Last 3 intervals'}
+                </small>
               </article>
               <article className="stat-card">
-                <span>Cost / mile</span>
-                <strong>{costPerMile ? formatCurrency(costPerMile) : '--'}</strong>
+                <span>Average MPG</span>
+                <strong>{chartEntries.length ? formatNumber(averageMpg) : '--'}</strong>
+                <small>{chartEntries.length ? `${chartEntries.length} intervals` : 'No intervals'}</small>
+              </article>
+              <article className="stat-card">
+                <span>Miles / fill-up</span>
+                <strong>
+                  {entriesWithMiles.length ? formatNumber(averageMilesPerFillup, 0) : '--'}
+                </strong>
+                <small>{entriesWithMiles.length ? 'Full-tank intervals' : 'No intervals'}</small>
+              </article>
+              <article className="stat-card">
+                <span>Cost / fill-up</span>
+                <strong>
+                  {paidEntries.length ? formatCurrency(averageCostPerFillup) : '--'}
+                </strong>
+                <small>{paidEntries.length ? `${paidEntries.length} fill-ups` : 'No fill-ups'}</small>
+              </article>
+              <article className="stat-card wide">
+                <span>Fuel spend</span>
+                <div className="stat-split">
+                  <div>
+                    <strong>{spendLast30Days ? formatCurrency(spendLast30Days) : '--'}</strong>
+                    <small>Last 30 days</small>
+                  </div>
+                  <div>
+                    <strong>{spendLastYear ? formatCurrency(spendLastYear) : '--'}</strong>
+                    <small>Last 12 months</small>
+                  </div>
+                </div>
               </article>
             </div>
 

@@ -462,13 +462,41 @@ button:focus-visible {
   line-height: 1;
 }
 
+.stat-card small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 740;
+  line-height: 1.25;
+}
+
+.stat-card.wide {
+  grid-column: 1 / -1;
+}
+
 .stat-card.highlight {
   background: var(--accent);
 }
 
 .stat-card.highlight span,
-.stat-card.highlight strong {
+.stat-card.highlight strong,
+.stat-card.highlight small {
   color: var(--on-accent);
+}
+
+.stat-split {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-split div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stat-split strong {
+  font-size: 1.35rem;
 }
 
 .chart-wrap {
