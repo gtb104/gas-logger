@@ -489,13 +489,9 @@ button:focus-visible {
 }
 
 .line-chart {
-  background: linear-gradient(to top, var(--surface-muted), transparent);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 8px;
-  min-height: 230px;
-  padding: 14px;
+  background: var(--surface);
+  min-height: 210px;
+  padding: 4px 0 0;
   position: relative;
 }
 
@@ -508,6 +504,33 @@ button:focus-visible {
 .chart-grid-line {
   stroke: var(--chart-grid);
   stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-axis-line {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-axis-label,
+.chart-axis-title,
+.chart-date-axis {
+  fill: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 720;
+}
+
+.chart-axis-label {
+  dominant-baseline: middle;
+}
+
+.chart-axis-title {
+  letter-spacing: 0;
+}
+
+.chart-date-axis {
+  font-size: 0.66rem;
 }
 
 .chart-area {
@@ -519,39 +542,15 @@ button:focus-visible {
   stroke: var(--accent);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 4;
+  stroke-width: 2.6;
+  vector-effect: non-scaling-stroke;
 }
 
 .chart-point {
   fill: var(--surface);
   stroke: var(--accent-strong);
-  stroke-width: 3;
-}
-
-.chart-scale,
-.chart-dates {
-  color: var(--muted);
-  display: flex;
-  font-size: 0.72rem;
-  font-weight: 760;
-  justify-content: space-between;
-}
-
-.chart-scale {
-  bottom: 36px;
-  flex-direction: column;
-  left: 16px;
-  pointer-events: none;
-  position: absolute;
-  top: 16px;
-}
-
-.chart-dates {
-  gap: 16px;
-}
-
-.chart-dates span:last-child {
-  text-align: right;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 
 .chart-heading small {

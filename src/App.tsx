@@ -110,7 +110,12 @@ const themeOptions: Array<{ label: string; value: ThemePreference }> = [
 const today = new Date().toISOString().slice(0, 10)
 const chartWidth = 320
 const chartHeight = 180
-const chartPadding = 22
+const chartMargin = {
+  top: 16,
+  right: 12,
+  bottom: 30,
+  left: 48,
+}
 const missedFillupThreshold = 1.65
 const maxEstimatedMissedFillups = 6
 
@@ -757,10 +762,10 @@ function AuthenticatedApp({
     ? Math.ceil(Math.max(...yearlyMpgValues) + 2)
     : 1
   const chartRange = Math.max(maxChartMpg - minChartMpg, 1)
-  const chartLeft = chartPadding
-  const chartRight = chartWidth - chartPadding
-  const chartTop = chartPadding
-  const chartBottom = chartHeight - chartPadding
+  const chartLeft = chartMargin.left
+  const chartRight = chartWidth - chartMargin.right
+  const chartTop = chartMargin.top
+  const chartBottom = chartHeight - chartMargin.bottom
   const firstChartDate = yearlyChartEntries[0]
     ? getEntryDate(yearlyChartEntries[0]).getTime()
     : 0
@@ -793,6 +798,16 @@ function AuthenticatedApp({
     linePoints.length > 1
       ? `${linePath} L ${linePoints.at(-1)?.x} ${chartBottom} L ${linePoints[0].x} ${chartBottom} Z`
       : ''
+  const chartTicks = Array.from({ length: 5 }, (_, index) => {
+    const value = minChartMpg + (chartRange / 4) * index
+    const y = chartBottom - ((value - minChartMpg) / chartRange) * (chartBottom - chartTop)
+
+    return {
+      value,
+      y,
+      label: Number.isInteger(value) ? String(value) : formatNumber(value),
+    }
+  }).reverse()
 
   const loadAppData = useCallback(
     async ({
@@ -1445,41 +1460,71 @@ function AuthenticatedApp({
                       <desc id="mpg-chart-description">
                         Line chart showing full-tank MPG intervals from the last year.
                       </desc>
-                      <line
-                        className="chart-grid-line"
-                        x1={chartLeft}
-                        x2={chartRight}
-                        y1={chartTop}
-                        y2={chartTop}
-                      />
-                      <line
-                        className="chart-grid-line"
-                        x1={chartLeft}
-                        x2={chartRight}
-                        y1={chartBottom}
-                        y2={chartBottom}
-                      />
+                      <g className="chart-axis" aria-hidden="true">
+                        {chartTicks.map((tick) => (
+                          <g key={tick.label}>
+                            <line
+                              className="chart-grid-line"
+                              x1={chartLeft}
+                              x2={chartRight}
+                              y1={tick.y}
+                              y2={tick.y}
+                            />
+                            <text
+                              className="chart-axis-label"
+                              x={chartLeft - 10}
+                              y={tick.y}
+                              textAnchor="end"
+                            >
+                              {tick.label}
+                            </text>
+                          </g>
+                        ))}
+                        <line
+                          className="chart-axis-line"
+                          x1={chartLeft}
+                          x2={chartLeft}
+                          y1={chartTop}
+                          y2={chartBottom}
+                        />
+                        <line
+                          className="chart-axis-line"
+                          x1={chartLeft}
+                          x2={chartRight}
+                          y1={chartBottom}
+                          y2={chartBottom}
+                        />
+                        <text
+                          className="chart-axis-title"
+                          x={chartLeft - 36}
+                          y={(chartTop + chartBottom) / 2}
+                          textAnchor="middle"
+                          transform={`rotate(-90 ${chartLeft - 36} ${
+                            (chartTop + chartBottom) / 2
+                          })`}
+                        >
+                          MPG
+                        </text>
+                      </g>
                       {areaPath && <path className="chart-area" d={areaPath} />}
                       {linePath && <path className="chart-line" d={linePath} />}
                       {linePoints.map((point) => (
                         <g key={point.key}>
-                          <circle className="chart-point" cx={point.x} cy={point.y} r="4" />
+                          <circle className="chart-point" cx={point.x} cy={point.y} r="3" />
                           <title>{point.label}</title>
                         </g>
                       ))}
+                      <g className="chart-date-axis" aria-hidden="true">
+                        <text x={chartLeft} y={chartHeight - 5} textAnchor="start">
+                          {formatDate(yearlyChartEntries[0].filledAt)}
+                        </text>
+                        <text x={chartRight} y={chartHeight - 5} textAnchor="end">
+                          {formatDate(
+                            yearlyChartEntries[yearlyChartEntries.length - 1].filledAt,
+                          )}
+                        </text>
+                      </g>
                     </svg>
-                    <div className="chart-scale" aria-hidden="true">
-                      <span>{maxChartMpg} MPG</span>
-                      <span>{minChartMpg} MPG</span>
-                    </div>
-                    <div className="chart-dates" aria-hidden="true">
-                      <span>{formatDate(yearlyChartEntries[0].filledAt)}</span>
-                      <span>
-                        {formatDate(
-                          yearlyChartEntries[yearlyChartEntries.length - 1].filledAt,
-                        )}
-                      </span>
-                    </div>
                   </>
                 ) : (
                   <p className="empty-state">
