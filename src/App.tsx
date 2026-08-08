@@ -774,6 +774,7 @@ function AuthenticatedApp({
   const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
   const [isDataLoading, setIsDataLoading] = useState(true)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
+  const [savingPreferredVehicleId, setSavingPreferredVehicleId] = useState('')
   const [isSavingVehicle, setIsSavingVehicle] = useState(false)
   const [dataError, setDataError] = useState('')
   const userDisplayName = getUserDisplayName(session.user)
@@ -1067,6 +1068,51 @@ function AuthenticatedApp({
       showLoading: false,
       garageId,
     })
+  }
+
+  async function savePreferredVehicle(vehicleId: string) {
+    if (!selectedGarage) {
+      setDataError('Select a garage before setting a preferred vehicle.')
+      return
+    }
+
+    setDataError('')
+    setSavingPreferredVehicleId(vehicleId)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setSavingPreferredVehicleId('')
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('garage_members')
+      .update({ preferred_vehicle_id: vehicleId })
+      .eq('garage_id', selectedGarage.garageId)
+      .eq('user_id', session.user.id)
+      .select('preferred_vehicle_id')
+      .single()
+
+    if (error || data?.preferred_vehicle_id !== vehicleId) {
+      setDataError(getDataErrorMessage('Unable to save your preferred vehicle.'))
+      setSavingPreferredVehicleId('')
+      return
+    }
+
+    setGarageMemberships((memberships) =>
+      memberships.map((membership) =>
+        membership.garageId === selectedGarage.garageId
+          ? { ...membership, preferredVehicleId: vehicleId }
+          : membership,
+      ),
+    )
+    selectVehicle(vehicleId)
+    await loadAppData({
+      showLoading: false,
+      preferredVehicleId: vehicleId,
+      resetDraft: false,
+    })
+    setSavingPreferredVehicleId('')
   }
 
   function renderNoVehiclesMessage() {
@@ -1718,6 +1764,29 @@ function AuthenticatedApp({
           <section className="config-section">
             <div className="panel-heading">
               <div>
+                <p className="eyebrow">Appearance</p>
+                <h2>Theme</h2>
+              </div>
+            </div>
+
+            <div className="segmented-control theme-control" aria-label="Theme selector">
+              {themeOptions.map((option) => (
+                <button
+                  aria-pressed={themePreference === option.value}
+                  className={themePreference === option.value ? 'selected' : ''}
+                  key={option.value}
+                  type="button"
+                  onClick={() => setThemePreference(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="config-section">
+            <div className="panel-heading">
+              <div>
                 <p className="eyebrow">Garage</p>
                 <h2>{selectedGarage?.garageName ?? 'No garage'}</h2>
               </div>
@@ -1755,29 +1824,6 @@ function AuthenticatedApp({
           </section>
 
           <section className="config-section">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Appearance</p>
-                <h2>Theme</h2>
-              </div>
-            </div>
-
-            <div className="segmented-control theme-control" aria-label="Theme selector">
-              {themeOptions.map((option) => (
-                <button
-                  aria-pressed={themePreference === option.value}
-                  className={themePreference === option.value ? 'selected' : ''}
-                  key={option.value}
-                  type="button"
-                  onClick={() => setThemePreference(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="config-section">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Vehicles</p>
@@ -1802,19 +1848,47 @@ function AuthenticatedApp({
               </div>
             ) : (
               activeVehicles.map((vehicle) => (
-              <button
+              <article
                 className={`vehicle-tile ${
                   vehicle.id === selectedVehicle?.id ? 'selected' : ''
                 }`}
                 key={vehicle.id}
-                type="button"
-                onClick={() => selectVehicle(vehicle.id)}
               >
-                <span>{getVehicleDisplayName(vehicle)}</span>
-                <small>
-                  {getVehicleFallbackName(vehicle)}
-                </small>
-              </button>
+                <button
+                  className="vehicle-select-button"
+                  type="button"
+                  onClick={() => selectVehicle(vehicle.id)}
+                >
+                  <span>{getVehicleDisplayName(vehicle)}</span>
+                  <small>{getVehicleFallbackName(vehicle)}</small>
+                </button>
+                <button
+                  className={`preferred-chip ${
+                    vehicle.id === selectedGarage?.preferredVehicleId
+                      ? 'selected'
+                      : ''
+                  }`}
+                  aria-label={`Set ${getVehicleDisplayName(vehicle)} as preferred vehicle`}
+                  aria-pressed={vehicle.id === selectedGarage?.preferredVehicleId}
+                  disabled={
+                    Boolean(savingPreferredVehicleId) ||
+                    vehicle.id === selectedGarage?.preferredVehicleId
+                  }
+                  title={
+                    vehicle.id === selectedGarage?.preferredVehicleId
+                      ? 'Preferred vehicle'
+                      : 'Make preferred vehicle'
+                  }
+                  type="button"
+                  onClick={() => void savePreferredVehicle(vehicle.id)}
+                >
+                  {savingPreferredVehicleId === vehicle.id
+                    ? 'Saving...'
+                    : vehicle.id === selectedGarage?.preferredVehicleId
+                      ? 'Preferred'
+                      : 'Make preferred'}
+                </button>
+              </article>
               ))
             )}
           </div>
