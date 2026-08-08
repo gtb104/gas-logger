@@ -6,6 +6,7 @@ import { supabase, supabaseConfigError } from './supabase'
 
 type Vehicle = {
   id: string
+  garageId: string
   name: string
   make: string
   model: string
@@ -15,6 +16,7 @@ type Vehicle = {
 
 type FuelEntry = {
   id: string
+  garageId: string
   vehicleId: string
   filledAt: string
   odometer: number
@@ -54,9 +56,30 @@ type DraftVehicle = {
   year: string
 }
 
+type GarageMembership = {
+  garageId: string
+  garageName: string
+  role: 'owner' | 'member'
+  preferredVehicleId: string | null
+}
+
+type GarageSummaryRow = {
+  id: string
+  name: string
+}
+
+type GarageMembershipRow = {
+  garage_id: string
+  user_id: string
+  role: 'owner' | 'member'
+  preferred_vehicle_id: string | null
+  garages: GarageSummaryRow | GarageSummaryRow[] | null
+}
+
 type VehicleRow = {
   id: string
   user_id: string
+  garage_id: string
   name: string
   make: string | null
   model: string | null
@@ -67,6 +90,8 @@ type VehicleRow = {
 type FuelEntryRow = {
   id: string
   user_id: string
+  garage_id: string
+  created_by: string
   vehicle_id: string
   filled_at: string
   odometer: number | string
@@ -83,6 +108,7 @@ type AppData = {
 
 type LoadAppDataOptions = {
   showLoading?: boolean
+  garageId?: string
   preferredVehicleId?: string
   resetDraft?: boolean
 }
@@ -287,6 +313,7 @@ function buildEstimatedMissedEntries(entries: FuelEntry[]): DisplayFuelEntry[] {
 
       estimatedEntries.push({
         id: `auto-estimate:${previousEntry.id}:${entry.id}:${index}`,
+        garageId: entry.garageId,
         vehicleId: entry.vehicleId,
         filledAt: toInputDate(estimatedDate),
         odometer: estimatedOdometer,
@@ -331,6 +358,7 @@ function buildMetrics(entries: DisplayFuelEntry[]): EntryWithMetrics[] {
 function mapVehicleRow(row: VehicleRow): Vehicle {
   return {
     id: row.id,
+    garageId: row.garage_id,
     name: row.name,
     make: row.make ?? '',
     model: row.model ?? '',
@@ -342,6 +370,7 @@ function mapVehicleRow(row: VehicleRow): Vehicle {
 function mapFuelEntryRow(row: FuelEntryRow): FuelEntry {
   return {
     id: row.id,
+    garageId: row.garage_id,
     vehicleId: row.vehicle_id,
     filledAt: row.filled_at,
     odometer: Number(row.odometer),
@@ -349,6 +378,17 @@ function mapFuelEntryRow(row: FuelEntryRow): FuelEntry {
     totalCost: Number(row.total_cost),
     isFullTank: row.is_full_tank,
     notes: row.notes ?? '',
+  }
+}
+
+function mapGarageMembershipRow(row: GarageMembershipRow): GarageMembership {
+  const garage = Array.isArray(row.garages) ? row.garages[0] : row.garages
+
+  return {
+    garageId: row.garage_id,
+    garageName: garage?.name ?? 'Garage',
+    role: row.role,
+    preferredVehicleId: row.preferred_vehicle_id,
   }
 }
 
@@ -723,6 +763,8 @@ function AuthenticatedApp({
   setThemePreference,
 }: AuthenticatedAppProps) {
   const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
+  const [garageMemberships, setGarageMemberships] = useState<GarageMembership[]>([])
+  const [selectedGarageId, setSelectedGarageId] = useState('')
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [entries, setEntries] = useState<FuelEntry[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
@@ -739,6 +781,9 @@ function AuthenticatedApp({
   const canAddVehicle =
     vehicleDraft.make.trim().length > 0 || vehicleDraft.model.trim().length > 0
 
+  const selectedGarage = garageMemberships.find(
+    (membership) => membership.garageId === selectedGarageId,
+  )
   const activeVehicles = vehicles.filter((vehicle) => !vehicle.archived)
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? activeVehicles[0]
@@ -843,6 +888,7 @@ function AuthenticatedApp({
   const loadAppData = useCallback(
     async ({
       showLoading = true,
+      garageId,
       preferredVehicleId,
       resetDraft = true,
     }: LoadAppDataOptions = {}): Promise<AppData | null> => {
@@ -858,18 +904,59 @@ function AuthenticatedApp({
       }
       setDataError('')
 
+      const membershipsResult = await client
+        .from('garage_members')
+        .select('garage_id, user_id, role, preferred_vehicle_id, garages(id, name)')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true })
+
+      if (membershipsResult.error) {
+        setDataError(getDataErrorMessage('Unable to load your garage.'))
+        setGarageMemberships([])
+        setVehicles([])
+        setEntries([])
+        setSelectedGarageId('')
+        setSelectedVehicleId('')
+        setEntryDraft(createEntryDraft(''))
+        setIsDataLoading(false)
+        return null
+      }
+
+      const nextGarageMemberships = (
+        (membershipsResult.data ?? []) as GarageMembershipRow[]
+      ).map(mapGarageMembershipRow)
+      const nextGarage =
+        nextGarageMemberships.find(
+          (membership) => membership.garageId === (garageId || selectedGarageId),
+        ) ?? nextGarageMemberships[0]
+
+      setGarageMemberships(nextGarageMemberships)
+
+      if (!nextGarage) {
+        setDataError('No garage membership was found for this account.')
+        setVehicles([])
+        setEntries([])
+        setSelectedGarageId('')
+        setSelectedVehicleId('')
+        setEntryDraft(createEntryDraft(''))
+        setIsDataLoading(false)
+        return null
+      }
+
+      setSelectedGarageId(nextGarage.garageId)
+
       const [vehiclesResult, entriesResult] = await Promise.all([
         client
           .from('vehicles')
-          .select('id, user_id, name, make, model, year, archived')
-          .eq('user_id', session.user.id)
+          .select('id, user_id, garage_id, name, make, model, year, archived')
+          .eq('garage_id', nextGarage.garageId)
           .order('created_at', { ascending: true }),
         client
           .from('fuel_entries')
           .select(
-            'id, user_id, vehicle_id, filled_at, odometer, gallons, total_cost, is_full_tank, notes',
+            'id, user_id, garage_id, created_by, vehicle_id, filled_at, odometer, gallons, total_cost, is_full_tank, notes',
           )
-          .eq('user_id', session.user.id)
+          .eq('garage_id', nextGarage.garageId)
           .order('filled_at', { ascending: true })
           .order('odometer', { ascending: true }),
       ])
@@ -892,9 +979,12 @@ function AuthenticatedApp({
       )
       const firstActiveVehicle =
         nextVehicles.find((vehicle) => !vehicle.archived) ?? nextVehicles[0]
-      const preferredVehicle = nextVehicles.find(
-        (vehicle) => vehicle.id === preferredVehicleId && !vehicle.archived,
-      )
+      const preferredVehicle = nextVehicles.find((vehicle) => {
+        const nextPreferredVehicleId =
+          preferredVehicleId || nextGarage.preferredVehicleId || ''
+
+        return vehicle.id === nextPreferredVehicleId && !vehicle.archived
+      })
       const nextSelectedVehicle = preferredVehicle ?? firstActiveVehicle
 
       setVehicles(nextVehicles)
@@ -910,7 +1000,7 @@ function AuthenticatedApp({
         entries: nextEntries,
       }
     },
-    [session.user.id],
+    [selectedGarageId, session.user.id],
   )
 
   useEffect(() => {
@@ -971,6 +1061,14 @@ function AuthenticatedApp({
     setEntryDraft((draft) => ({ ...draft, vehicleId }))
   }
 
+  async function selectGarage(garageId: string) {
+    setSelectedGarageId(garageId)
+    await loadAppData({
+      showLoading: false,
+      garageId,
+    })
+  }
+
   function renderNoVehiclesMessage() {
     return (
       <div className="route-empty-state">
@@ -996,6 +1094,11 @@ function AuthenticatedApp({
       return
     }
 
+    if (!selectedGarage) {
+      setDataError('A garage is required before adding a vehicle.')
+      return
+    }
+
     setIsSavingVehicle(true)
 
     if (!supabase) {
@@ -1008,13 +1111,14 @@ function AuthenticatedApp({
       .from('vehicles')
       .insert({
         user_id: session.user.id,
+        garage_id: selectedGarage.garageId,
         name: vehicleDraft.name.trim(),
         make: vehicleDraft.make.trim() || null,
         model: vehicleDraft.model.trim() || null,
         year: vehicleDraft.year.trim() || null,
         archived: false,
       })
-      .select('id, user_id, name, make, model, year, archived')
+      .select('id, user_id, garage_id, name, make, model, year, archived')
       .single()
 
     if (error) {
@@ -1050,12 +1154,18 @@ function AuthenticatedApp({
       return
     }
 
+    if (!selectedGarage) {
+      setDataError('A garage is required before saving a fuel entry.')
+      return
+    }
+
     setDataError('')
     setIsSavingEntry(true)
 
     const gallons = Number(entryDraft.gallons)
     const totalCost = Number(entryDraft.totalCost)
     const entryPayload = {
+      garage_id: selectedGarage.garageId,
       vehicle_id: entryDraft.vehicleId,
       filled_at: entryDraft.filledAt,
       odometer: Number(entryDraft.odometer),
@@ -1076,15 +1186,16 @@ function AuthenticatedApp({
           .from('fuel_entries')
           .update(entryPayload)
           .eq('id', editingEntryId)
-          .eq('user_id', session.user.id)
+          .eq('garage_id', selectedGarage.garageId)
       : supabase.from('fuel_entries').insert({
           ...entryPayload,
           user_id: session.user.id,
+          created_by: session.user.id,
         })
 
     const { data, error } = await query
       .select(
-        'id, user_id, vehicle_id, filled_at, odometer, gallons, total_cost, is_full_tank, notes',
+        'id, user_id, garage_id, created_by, vehicle_id, filled_at, odometer, gallons, total_cost, is_full_tank, notes',
       )
       .single()
 
@@ -1130,7 +1241,7 @@ function AuthenticatedApp({
         .from('fuel_entries')
         .delete()
         .eq('id', entryId)
-        .eq('user_id', session.user.id)
+        .eq('garage_id', selectedGarageId)
 
       if (error) {
         setDataError(getDataErrorMessage('Unable to delete that fill-up.'))
@@ -1161,7 +1272,7 @@ function AuthenticatedApp({
         .from('vehicles')
         .update({ archived: true })
         .eq('id', selectedVehicle.id)
-        .eq('user_id', session.user.id)
+        .eq('garage_id', selectedGarageId)
 
       if (error) {
         setDataError(getDataErrorMessage('Unable to archive that vehicle.'))
@@ -1604,6 +1715,45 @@ function AuthenticatedApp({
 
         {route === '/config' && (
           <section className="vehicle-panel screen-panel">
+          <section className="config-section">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Garage</p>
+                <h2>{selectedGarage?.garageName ?? 'No garage'}</h2>
+              </div>
+            </div>
+
+            {selectedGarage ? (
+              <>
+                <p className="config-note">
+                  You are a {selectedGarage.role} in this garage.
+                </p>
+                {garageMemberships.length > 1 && (
+                  <div className="segmented-control" aria-label="Garage selector">
+                    {garageMemberships.map((membership) => (
+                      <button
+                        aria-pressed={membership.garageId === selectedGarageId}
+                        className={
+                          membership.garageId === selectedGarageId ? 'selected' : ''
+                        }
+                        key={membership.garageId}
+                        type="button"
+                        onClick={() => void selectGarage(membership.garageId)}
+                      >
+                        {membership.garageName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="route-empty-state compact">
+                <strong>No garage found</strong>
+                <p>This account needs to be added to a garage before logging fuel.</p>
+              </div>
+            )}
+          </section>
+
           <section className="config-section">
             <div className="panel-heading">
               <div>

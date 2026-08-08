@@ -186,6 +186,13 @@
   padding-top: 18px;
 }
 
+.config-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 650;
+  margin: -4px 0 14px;
+}
+
 .panel-heading {
   align-items: flex-start;
   display: flex;
