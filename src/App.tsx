@@ -1483,6 +1483,28 @@ function AuthenticatedApp({
     setAcceptingInviteId('')
   }
 
+  function renderCreateGarageForm(buttonLabel = '+ Create') {
+    return (
+      <form className="compact-form inline-form" onSubmit={createGarage}>
+        <label>
+          Create garage
+          <input
+            disabled={isCreatingGarage}
+            value={newGarageName}
+            onChange={(event) => setNewGarageName(event.target.value)}
+          />
+        </label>
+        <button
+          className="secondary-button"
+          disabled={isCreatingGarage || !newGarageName.trim()}
+          type="submit"
+        >
+          {isCreatingGarage ? 'Creating...' : buttonLabel}
+        </button>
+      </form>
+    )
+  }
+
   function renderNoVehiclesMessage() {
     return (
       <div className="route-empty-state">
@@ -2242,23 +2264,7 @@ function AuthenticatedApp({
                       </button>
                     </form>
 
-                    <form className="compact-form inline-form" onSubmit={createGarage}>
-                      <label>
-                        Create garage
-                        <input
-                          disabled={isCreatingGarage}
-                          value={newGarageName}
-                          onChange={(event) => setNewGarageName(event.target.value)}
-                        />
-                      </label>
-                      <button
-                        className="secondary-button"
-                        disabled={isCreatingGarage || !newGarageName.trim()}
-                        type="submit"
-                      >
-                        {isCreatingGarage ? 'Creating...' : '+ Create'}
-                      </button>
-                    </form>
+                    {renderCreateGarageForm()}
 
                     <form className="compact-form inline-form" onSubmit={sendGarageInvite}>
                       <label>
@@ -2295,9 +2301,12 @@ function AuthenticatedApp({
                 )}
               </div>
             ) : (
-              <div className="route-empty-state compact">
-                <strong>No garage found</strong>
-                <p>This account needs to be added to a garage before logging fuel.</p>
+              <div className="garage-controls">
+                <div className="route-empty-state compact">
+                  <strong>No garage found</strong>
+                  <p>Join an available garage or create one to start logging fuel.</p>
+                </div>
+                {renderCreateGarageForm('+ Create garage')}
               </div>
             )}
           </section>
