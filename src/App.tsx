@@ -121,6 +121,7 @@ type AppData = {
   vehicles: Vehicle[]
   entries: FuelEntry[]
   invites: GarageInvite[]
+  userInvites: GarageInvite[]
 }
 
 type LoadAppDataOptions = {
@@ -793,6 +794,7 @@ function AuthenticatedApp({
   const [garageMemberships, setGarageMemberships] = useState<GarageMembership[]>([])
   const [selectedGarageId, setSelectedGarageId] = useState('')
   const [garageInvites, setGarageInvites] = useState<GarageInvite[]>([])
+  const [userGarageInvites, setUserGarageInvites] = useState<GarageInvite[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [entries, setEntries] = useState<FuelEntry[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
@@ -808,6 +810,7 @@ function AuthenticatedApp({
   const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
   const [isDataLoading, setIsDataLoading] = useState(true)
   const [isCreatingGarage, setIsCreatingGarage] = useState(false)
+  const [acceptingInviteId, setAcceptingInviteId] = useState('')
   const [isSendingInvite, setIsSendingInvite] = useState(false)
   const [isRenamingGarage, setIsRenamingGarage] = useState(false)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
@@ -954,6 +957,7 @@ function AuthenticatedApp({
         setDataError(getDataErrorMessage('Unable to load your garage.'))
         setGarageMemberships([])
         setGarageInvites([])
+        setUserGarageInvites([])
         setVehicles([])
         setEntries([])
         setSelectedGarageId('')
@@ -966,6 +970,29 @@ function AuthenticatedApp({
       const nextGarageMemberships = (
         (membershipsResult.data ?? []) as GarageMembershipRow[]
       ).map(mapGarageMembershipRow)
+      let nextUserInvites: GarageInvite[] = []
+
+      if (session.user.email) {
+        const userInvitesResult = await client
+          .from('garage_invites')
+          .select('id, garage_id, email, role, created_at')
+          .eq('email', session.user.email.toLowerCase())
+          .is('accepted_at', null)
+          .is('revoked_at', null)
+          .order('created_at', { ascending: false })
+
+        if (userInvitesResult.error) {
+          setUserGarageInvites([])
+        } else {
+          nextUserInvites = ((userInvitesResult.data ?? []) as GarageInviteRow[]).map(
+            mapGarageInviteRow,
+          )
+          setUserGarageInvites(nextUserInvites)
+        }
+      } else {
+        setUserGarageInvites([])
+      }
+
       const nextGarage =
         nextGarageMemberships.find(
           (membership) => membership.garageId === (garageId || selectedGarageId),
@@ -974,7 +1001,11 @@ function AuthenticatedApp({
       setGarageMemberships(nextGarageMemberships)
 
       if (!nextGarage) {
-        setDataError('No garage membership was found for this account.')
+        setDataError(
+          nextUserInvites.length
+            ? ''
+            : 'No garage membership was found for this account.',
+        )
         setGarageInvites([])
         setVehicles([])
         setEntries([])
@@ -982,7 +1013,12 @@ function AuthenticatedApp({
         setSelectedVehicleId('')
         setEntryDraft(createEntryDraft(''))
         setIsDataLoading(false)
-        return null
+        return {
+          vehicles: [],
+          entries: [],
+          invites: [],
+          userInvites: nextUserInvites,
+        }
       }
 
       setSelectedGarageId(nextGarage.garageId)
@@ -1066,9 +1102,10 @@ function AuthenticatedApp({
         vehicles: nextVehicles,
         entries: nextEntries,
         invites: nextInvites,
+        userInvites: nextUserInvites,
       }
     },
-    [selectedGarageId, session.user.id],
+    [selectedGarageId, session.user.email, session.user.id],
   )
 
   useEffect(() => {
@@ -1341,6 +1378,38 @@ function AuthenticatedApp({
       resetDraft: false,
     })
     setIsSendingInvite(false)
+  }
+
+  async function acceptGarageInvite(invite: GarageInvite) {
+    setDataError('')
+    setAcceptingInviteId(invite.id)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setAcceptingInviteId('')
+      return
+    }
+
+    const { data, error } = await supabase.rpc('accept_garage_invite', {
+      target_invite_id: invite.id,
+    })
+
+    if (error) {
+      setDataError(getDataErrorMessage('Unable to accept that garage invite.'))
+      setAcceptingInviteId('')
+      return
+    }
+
+    const joinedGarageId = typeof data === 'string' ? data : invite.garageId
+
+    setUserGarageInvites((invites) =>
+      invites.filter((pendingInvite) => pendingInvite.id !== invite.id),
+    )
+    await loadAppData({
+      showLoading: false,
+      garageId: joinedGarageId,
+    })
+    setAcceptingInviteId('')
   }
 
   function renderNoVehiclesMessage() {
@@ -2038,6 +2107,28 @@ function AuthenticatedApp({
                 <h2>Manage access</h2>
               </div>
             </div>
+
+            {userGarageInvites.length > 0 && (
+              <div className="invite-list inbound-invites">
+                <p className="eyebrow">Pending invitations</p>
+                {userGarageInvites.map((invite) => (
+                  <div className="invite-row" key={invite.id}>
+                    <div>
+                      <span>Garage invite</span>
+                      <small>{invite.email}</small>
+                    </div>
+                    <button
+                      className="secondary-button compact"
+                      disabled={Boolean(acceptingInviteId)}
+                      type="button"
+                      onClick={() => void acceptGarageInvite(invite)}
+                    >
+                      {acceptingInviteId === invite.id ? 'Accepting...' : 'Accept'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {selectedGarage ? (
               <div className="garage-controls">

@@ -260,6 +260,12 @@
   padding: 9px 10px;
 }
 
+.invite-row div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .invite-row span {
   color: var(--text);
   font-size: 0.9rem;
@@ -273,6 +279,13 @@
   font-size: 0.72rem;
   font-weight: 780;
   text-transform: capitalize;
+}
+
+.inbound-invites {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  padding: 12px;
 }
 
 .vehicle-list {
