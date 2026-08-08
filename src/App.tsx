@@ -76,6 +76,22 @@ type GarageMembershipRow = {
   garages: GarageSummaryRow | GarageSummaryRow[] | null
 }
 
+type GarageInvite = {
+  id: string
+  garageId: string
+  email: string
+  role: 'owner' | 'member'
+  createdAt: string
+}
+
+type GarageInviteRow = {
+  id: string
+  garage_id: string
+  email: string
+  role: 'owner' | 'member'
+  created_at: string
+}
+
 type VehicleRow = {
   id: string
   user_id: string
@@ -104,6 +120,7 @@ type FuelEntryRow = {
 type AppData = {
   vehicles: Vehicle[]
   entries: FuelEntry[]
+  invites: GarageInvite[]
 }
 
 type LoadAppDataOptions = {
@@ -389,6 +406,16 @@ function mapGarageMembershipRow(row: GarageMembershipRow): GarageMembership {
     garageName: garage?.name ?? 'Garage',
     role: row.role,
     preferredVehicleId: row.preferred_vehicle_id,
+  }
+}
+
+function mapGarageInviteRow(row: GarageInviteRow): GarageInvite {
+  return {
+    id: row.id,
+    garageId: row.garage_id,
+    email: row.email,
+    role: row.role,
+    createdAt: row.created_at,
   }
 }
 
@@ -765,11 +792,13 @@ function AuthenticatedApp({
   const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
   const [garageMemberships, setGarageMemberships] = useState<GarageMembership[]>([])
   const [selectedGarageId, setSelectedGarageId] = useState('')
+  const [garageInvites, setGarageInvites] = useState<GarageInvite[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [entries, setEntries] = useState<FuelEntry[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [entryDraft, setEntryDraft] = useState(createEntryDraft(''))
   const [garageNameDraft, setGarageNameDraft] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
   const [newGarageName, setNewGarageName] = useState('')
   const [vehiclePendingArchive, setVehiclePendingArchive] = useState<Vehicle | null>(
     null,
@@ -779,6 +808,7 @@ function AuthenticatedApp({
   const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
   const [isDataLoading, setIsDataLoading] = useState(true)
   const [isCreatingGarage, setIsCreatingGarage] = useState(false)
+  const [isSendingInvite, setIsSendingInvite] = useState(false)
   const [isRenamingGarage, setIsRenamingGarage] = useState(false)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
   const [savingPreferredVehicleId, setSavingPreferredVehicleId] = useState('')
@@ -923,6 +953,7 @@ function AuthenticatedApp({
       if (membershipsResult.error) {
         setDataError(getDataErrorMessage('Unable to load your garage.'))
         setGarageMemberships([])
+        setGarageInvites([])
         setVehicles([])
         setEntries([])
         setSelectedGarageId('')
@@ -944,6 +975,7 @@ function AuthenticatedApp({
 
       if (!nextGarage) {
         setDataError('No garage membership was found for this account.')
+        setGarageInvites([])
         setVehicles([])
         setEntries([])
         setSelectedGarageId('')
@@ -973,6 +1005,7 @@ function AuthenticatedApp({
 
       if (vehiclesResult.error || entriesResult.error) {
         setDataError(getDataErrorMessage('Unable to load your vehicles and fill-ups.'))
+        setGarageInvites([])
         setVehicles([])
         setEntries([])
         setSelectedVehicleId('')
@@ -987,6 +1020,30 @@ function AuthenticatedApp({
       const nextEntries = ((entriesResult.data ?? []) as FuelEntryRow[]).map(
         mapFuelEntryRow,
       )
+      let nextInvites: GarageInvite[] = []
+
+      if (nextGarage.role === 'owner') {
+        const invitesResult = await client
+          .from('garage_invites')
+          .select('id, garage_id, email, role, created_at')
+          .eq('garage_id', nextGarage.garageId)
+          .is('accepted_at', null)
+          .is('revoked_at', null)
+          .order('created_at', { ascending: false })
+
+        if (invitesResult.error) {
+          setDataError(getDataErrorMessage('Unable to load pending garage invites.'))
+          setGarageInvites([])
+        } else {
+          nextInvites = ((invitesResult.data ?? []) as GarageInviteRow[]).map(
+            mapGarageInviteRow,
+          )
+          setGarageInvites(nextInvites)
+        }
+      } else {
+        setGarageInvites([])
+      }
+
       const firstActiveVehicle =
         nextVehicles.find((vehicle) => !vehicle.archived) ?? nextVehicles[0]
       const preferredVehicle = nextVehicles.find((vehicle) => {
@@ -1008,6 +1065,7 @@ function AuthenticatedApp({
       return {
         vehicles: nextVehicles,
         entries: nextEntries,
+        invites: nextInvites,
       }
     },
     [selectedGarageId, session.user.id],
@@ -1235,6 +1293,54 @@ function AuthenticatedApp({
       resetDraft: false,
     })
     setIsRenamingGarage(false)
+  }
+
+  async function sendGarageInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const normalizedEmail = inviteEmail.trim().toLowerCase()
+
+    if (!selectedGarage || !isGarageOwner) {
+      setDataError('Only garage owners can invite members.')
+      return
+    }
+
+    if (!normalizedEmail) {
+      setDataError('Enter an email address before sending an invite.')
+      return
+    }
+
+    setDataError('')
+    setIsSendingInvite(true)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setIsSendingInvite(false)
+      return
+    }
+
+    const { error } = await supabase.functions.invoke('invite-garage-member', {
+      body: {
+        garageId: selectedGarage.garageId,
+        email: normalizedEmail,
+        role: 'member',
+        redirectTo: `${window.location.origin}/config`,
+      },
+    })
+
+    if (error) {
+      setDataError(getDataErrorMessage('Unable to send that invite.'))
+      setIsSendingInvite(false)
+      return
+    }
+
+    setInviteEmail('')
+    await loadAppData({
+      showLoading: false,
+      garageId: selectedGarage.garageId,
+      resetDraft: false,
+    })
+    setIsSendingInvite(false)
   }
 
   function renderNoVehiclesMessage() {
@@ -1991,6 +2097,38 @@ function AuthenticatedApp({
                         {isCreatingGarage ? 'Creating...' : '+ Create'}
                       </button>
                     </form>
+
+                    <form className="compact-form inline-form" onSubmit={sendGarageInvite}>
+                      <label>
+                        Invite member
+                        <input
+                          disabled={isSendingInvite}
+                          inputMode="email"
+                          type="email"
+                          value={inviteEmail}
+                          onChange={(event) => setInviteEmail(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button"
+                        disabled={isSendingInvite || !inviteEmail.trim()}
+                        type="submit"
+                      >
+                        {isSendingInvite ? 'Sending...' : 'Send invite'}
+                      </button>
+                    </form>
+
+                    {garageInvites.length > 0 && (
+                      <div className="invite-list">
+                        <p className="eyebrow">Pending invites</p>
+                        {garageInvites.map((invite) => (
+                          <div className="invite-row" key={invite.id}>
+                            <span>{invite.email}</span>
+                            <small>{invite.role}</small>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
               </div>

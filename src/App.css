@@ -243,6 +243,38 @@
   margin-bottom: 0;
 }
 
+.invite-list {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.invite-row {
+  align-items: center;
+  background: var(--surface-muted);
+  border-radius: var(--radius);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 9px 10px;
+}
+
+.invite-row span {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 740;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.invite-row small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 780;
+  text-transform: capitalize;
+}
+
 .vehicle-list {
   display: grid;
   gap: 10px;
