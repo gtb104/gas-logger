@@ -432,29 +432,6 @@ function getDataErrorMessage(action: string) {
   return `${action} Check your connection and try again.`
 }
 
-function getUserDisplayName(user: Session['user']) {
-  const metadata = user.user_metadata
-
-  return metadata?.display_name?.trim() ?? ''
-}
-
-function getUserInitials(displayName: string) {
-  const nameParts = displayName
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  if (nameParts.length === 0) {
-    return 'U'
-  }
-
-  if (nameParts.length === 1) {
-    return nameParts[0].slice(0, 2).toUpperCase()
-  }
-
-  return `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
-}
-
 function getCurrentRoute(): AppRoute {
   return routes.includes(window.location.pathname as AppRoute)
     ? (window.location.pathname as AppRoute)
@@ -888,8 +865,7 @@ function AuthenticatedApp({
   const [savingPreferredVehicleId, setSavingPreferredVehicleId] = useState('')
   const [isSavingVehicle, setIsSavingVehicle] = useState(false)
   const [dataError, setDataError] = useState('')
-  const userDisplayName = getUserDisplayName(session.user)
-  const userInitials = getUserInitials(userDisplayName)
+  const userEmail = session.user.email ?? 'Signed in user'
   const canAddVehicle =
     vehicleDraft.make.trim().length > 0 || vehicleDraft.model.trim().length > 0
 
@@ -1752,17 +1728,6 @@ function AuthenticatedApp({
 
   return (
     <main className="app-shell">
-      {route === '/config' && (
-        <header className="topbar">
-          <div className="account-chip" aria-label="Current account">
-            <span title={userDisplayName || 'Signed in user'}>{userInitials}</span>
-            <button type="button" onClick={onSignOut}>
-              Sign out
-            </button>
-          </div>
-        </header>
-      )}
-
       <section className="app-content">
         {!isOnline && (
           <div className="offline-banner" role="status">
@@ -2461,6 +2426,15 @@ function AuthenticatedApp({
               vehicles.
             </p>
           )}
+          </section>
+
+          <section className="config-section account-section">
+            <div className="account-chip" aria-label="Current account">
+              <span title={userEmail}>{userEmail}</span>
+              <button type="button" onClick={onSignOut}>
+                Sign out
+              </button>
+            </div>
           </section>
         </section>
         )}

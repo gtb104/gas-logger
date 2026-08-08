@@ -87,14 +87,6 @@
   padding: 10px 12px;
 }
 
-.topbar {
-  align-items: flex-start;
-  display: flex;
-  gap: 24px;
-  justify-content: flex-end;
-  margin-bottom: 24px;
-}
-
 .eyebrow {
   color: var(--accent);
   font-size: 0.76rem;
@@ -106,27 +98,22 @@
 
 .account-chip {
   align-items: center;
-  background: var(--surface);
+  background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   display: flex;
-  flex: 0 0 auto;
   gap: 10px;
+  justify-content: space-between;
   padding: 10px 12px;
+  width: 100%;
 }
 
 .account-chip span {
-  align-items: center;
-  background: var(--accent-soft);
-  border-radius: 999px;
-  color: var(--accent-strong);
-  display: inline-flex;
-  font-size: 0.8rem;
+  color: var(--text);
+  font-size: 0.92rem;
   font-weight: 800;
-  height: 34px;
-  justify-content: center;
-  width: 34px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .account-chip small,
@@ -137,10 +124,11 @@
 }
 
 .account-chip button {
-  background: var(--surface-muted);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
+  flex: 0 0 auto;
   font-size: 0.82rem;
   font-weight: 820;
   min-height: 34px;
@@ -965,15 +953,6 @@ button:focus-visible {
 @media (max-width: 760px) {
   .app-shell {
     padding: 14px 14px 98px;
-  }
-
-  .topbar {
-    display: grid;
-  }
-
-  .account-chip {
-    justify-content: space-between;
-    width: 100%;
   }
 
   .field-row,
