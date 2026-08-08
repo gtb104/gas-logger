@@ -190,7 +190,12 @@
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 650;
-  margin: -4px 0 14px;
+  margin: -2px 0 4px;
+}
+
+.garage-controls {
+  display: grid;
+  gap: 10px;
 }
 
 .panel-heading {
@@ -222,10 +227,30 @@
   width: 36px;
 }
 
+.icon-button svg {
+  fill: none;
+  height: 19px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 19px;
+}
+
+.inline-form {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 0;
+}
+
 .vehicle-list {
   display: grid;
   gap: 10px;
   margin-bottom: 18px;
+}
+
+.vehicle-list.compact-list {
+  margin-bottom: 0;
 }
 
 .vehicle-tile {
@@ -237,6 +262,10 @@
   gap: 10px;
   justify-content: space-between;
   padding: 10px 12px;
+}
+
+.vehicle-tile.archived {
+  opacity: 0.82;
 }
 
 .vehicle-select-button {
@@ -287,6 +316,18 @@
 
 .preferred-chip:disabled {
   opacity: 1;
+}
+
+.vehicle-row-action {
+  flex: 0 0 auto;
+}
+
+.archived-vehicles {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 18px;
+  padding-top: 14px;
 }
 
 .compact-form,
@@ -343,6 +384,7 @@ label {
 }
 
 input,
+select,
 textarea {
   background: var(--field-bg);
   border: 1px solid var(--border);
@@ -356,6 +398,21 @@ textarea {
   padding: 10px 12px;
   text-align: left;
   width: 100%;
+}
+
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 12px) 50%;
+  background-repeat: no-repeat;
+  background-size:
+    6px 6px,
+    6px 6px;
+  padding-right: 34px;
 }
 
 input[type='date'] {
@@ -771,6 +828,47 @@ button:focus-visible {
 .entry-actions button:last-child:hover {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(15, 20, 27, 0.48);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 40;
+}
+
+.confirm-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+  max-width: 420px;
+  padding: 18px;
+  width: min(100%, 420px);
+}
+
+.confirm-modal h2 {
+  color: var(--text);
+  font-size: 1.25rem;
+  line-height: 1.15;
+  margin: 2px 0 0;
+}
+
+.confirm-modal p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.modal-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .bottom-nav {

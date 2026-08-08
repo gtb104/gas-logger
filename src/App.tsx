@@ -769,10 +769,17 @@ function AuthenticatedApp({
   const [entries, setEntries] = useState<FuelEntry[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [entryDraft, setEntryDraft] = useState(createEntryDraft(''))
+  const [garageNameDraft, setGarageNameDraft] = useState('')
+  const [newGarageName, setNewGarageName] = useState('')
+  const [vehiclePendingArchive, setVehiclePendingArchive] = useState<Vehicle | null>(
+    null,
+  )
   const [vehicleDraft, setVehicleDraft] = useState(newVehicleDraft)
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
   const [isDataLoading, setIsDataLoading] = useState(true)
+  const [isCreatingGarage, setIsCreatingGarage] = useState(false)
+  const [isRenamingGarage, setIsRenamingGarage] = useState(false)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
   const [savingPreferredVehicleId, setSavingPreferredVehicleId] = useState('')
   const [isSavingVehicle, setIsSavingVehicle] = useState(false)
@@ -785,7 +792,9 @@ function AuthenticatedApp({
   const selectedGarage = garageMemberships.find(
     (membership) => membership.garageId === selectedGarageId,
   )
+  const isGarageOwner = selectedGarage?.role === 'owner'
   const activeVehicles = vehicles.filter((vehicle) => !vehicle.archived)
+  const archivedVehicles = vehicles.filter((vehicle) => vehicle.archived)
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? activeVehicles[0]
   const selectedEntries = entries.filter(
@@ -1033,6 +1042,10 @@ function AuthenticatedApp({
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
+  useEffect(() => {
+    setGarageNameDraft(selectedGarage?.garageName ?? '')
+  }, [selectedGarage?.garageName])
+
   function navigate(nextRoute: AppRoute) {
     if (nextRoute === route) {
       return
@@ -1113,6 +1126,115 @@ function AuthenticatedApp({
       resetDraft: false,
     })
     setSavingPreferredVehicleId('')
+  }
+
+  async function createGarage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const garageName = newGarageName.trim()
+
+    if (!garageName) {
+      setDataError('Enter a garage name before creating it.')
+      return
+    }
+
+    setDataError('')
+    setIsCreatingGarage(true)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setIsCreatingGarage(false)
+      return
+    }
+
+    const garageId = crypto.randomUUID()
+
+    const { error: garageError } = await supabase
+      .from('garages')
+      .insert({
+        id: garageId,
+        name: garageName,
+        created_by: session.user.id,
+      })
+
+    if (garageError) {
+      setDataError(getDataErrorMessage('Unable to create that garage.'))
+      setIsCreatingGarage(false)
+      return
+    }
+
+    const { error: membershipError } = await supabase.from('garage_members').insert({
+      garage_id: garageId,
+      user_id: session.user.id,
+      role: 'owner',
+    })
+
+    if (membershipError) {
+      setDataError(getDataErrorMessage('Garage created, but owner access could not be added.'))
+      setIsCreatingGarage(false)
+      return
+    }
+
+    setNewGarageName('')
+    await loadAppData({
+      showLoading: false,
+      garageId,
+    })
+    setIsCreatingGarage(false)
+  }
+
+  async function renameGarage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const garageName = garageNameDraft.trim()
+
+    if (!selectedGarage || !isGarageOwner) {
+      setDataError('Only garage owners can rename garages.')
+      return
+    }
+
+    if (!garageName) {
+      setDataError('Garage name cannot be blank.')
+      return
+    }
+
+    if (garageName === selectedGarage.garageName) {
+      return
+    }
+
+    setDataError('')
+    setIsRenamingGarage(true)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setIsRenamingGarage(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('garages')
+      .update({ name: garageName })
+      .eq('id', selectedGarage.garageId)
+
+    if (error) {
+      setDataError(getDataErrorMessage('Unable to rename that garage.'))
+      setIsRenamingGarage(false)
+      return
+    }
+
+    setGarageMemberships((memberships) =>
+      memberships.map((membership) =>
+        membership.garageId === selectedGarage.garageId
+          ? { ...membership, garageName }
+          : membership,
+      ),
+    )
+    await loadAppData({
+      showLoading: false,
+      garageId: selectedGarage.garageId,
+      resetDraft: false,
+    })
+    setIsRenamingGarage(false)
   }
 
   function renderNoVehiclesMessage() {
@@ -1306,9 +1428,10 @@ function AuthenticatedApp({
     }
   }
 
-  async function archiveVehicle() {
-    if (!selectedVehicle || activeVehicles.length < 2) {
-      return
+  async function updateVehicleArchived(vehicle: Vehicle, archived: boolean) {
+    if (!isGarageOwner) {
+      setDataError('Only garage owners can manage vehicles.')
+      return false
     }
 
     setDataError('')
@@ -1316,22 +1439,27 @@ function AuthenticatedApp({
     if (supabase) {
       const { error } = await supabase
         .from('vehicles')
-        .update({ archived: true })
-        .eq('id', selectedVehicle.id)
+        .update({ archived })
+        .eq('id', vehicle.id)
         .eq('garage_id', selectedGarageId)
 
       if (error) {
-        setDataError(getDataErrorMessage('Unable to archive that vehicle.'))
-        return
+        setDataError(
+          getDataErrorMessage(
+            archived ? 'Unable to archive that vehicle.' : 'Unable to restore that vehicle.',
+          ),
+        )
+        return false
       }
     }
 
-    const nextVehicle = activeVehicles.find(
-      (vehicle) => vehicle.id !== selectedVehicle.id,
-    )
+    const nextVehicle = archived
+      ? activeVehicles.find((activeVehicle) => activeVehicle.id !== vehicle.id)
+      : vehicle
     const refreshedData = await loadAppData({
       showLoading: false,
       preferredVehicleId: nextVehicle?.id,
+      resetDraft: false,
     })
     const refreshedNextVehicle =
       refreshedData?.vehicles.find((vehicle) => vehicle.id === nextVehicle?.id) ??
@@ -1339,6 +1467,19 @@ function AuthenticatedApp({
 
     setSelectedVehicleId(refreshedNextVehicle?.id ?? '')
     resetEntryDraft(refreshedNextVehicle?.id ?? '')
+    return true
+  }
+
+  async function confirmArchiveVehicle() {
+    if (!vehiclePendingArchive) {
+      return
+    }
+
+    const wasArchived = await updateVehicleArchived(vehiclePendingArchive, true)
+
+    if (wasArchived) {
+      setVehiclePendingArchive(null)
+    }
   }
 
   return (
@@ -1788,33 +1929,71 @@ function AuthenticatedApp({
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Garage</p>
-                <h2>{selectedGarage?.garageName ?? 'No garage'}</h2>
+                <h2>Manage access</h2>
               </div>
             </div>
 
             {selectedGarage ? (
-              <>
-                <p className="config-note">
-                  You are a {selectedGarage.role} in this garage.
-                </p>
-                {garageMemberships.length > 1 && (
-                  <div className="segmented-control" aria-label="Garage selector">
+              <div className="garage-controls">
+                <label>
+                  Current garage
+                  <select
+                    value={selectedGarageId}
+                    onChange={(event) => void selectGarage(event.target.value)}
+                  >
                     {garageMemberships.map((membership) => (
-                      <button
-                        aria-pressed={membership.garageId === selectedGarageId}
-                        className={
-                          membership.garageId === selectedGarageId ? 'selected' : ''
-                        }
-                        key={membership.garageId}
-                        type="button"
-                        onClick={() => void selectGarage(membership.garageId)}
-                      >
+                      <option key={membership.garageId} value={membership.garageId}>
                         {membership.garageName}
-                      </button>
+                      </option>
                     ))}
-                  </div>
+                  </select>
+                </label>
+                <p className="config-note">You are a {selectedGarage.role}.</p>
+
+                {isGarageOwner && (
+                  <>
+                    <form className="compact-form inline-form" onSubmit={renameGarage}>
+                      <label>
+                        Rename garage
+                        <input
+                          disabled={isRenamingGarage}
+                          value={garageNameDraft}
+                          onChange={(event) => setGarageNameDraft(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button"
+                        disabled={
+                          isRenamingGarage ||
+                          !garageNameDraft.trim() ||
+                          garageNameDraft.trim() === selectedGarage.garageName
+                        }
+                        type="submit"
+                      >
+                        {isRenamingGarage ? 'Saving...' : 'Rename'}
+                      </button>
+                    </form>
+
+                    <form className="compact-form inline-form" onSubmit={createGarage}>
+                      <label>
+                        Create garage
+                        <input
+                          disabled={isCreatingGarage}
+                          value={newGarageName}
+                          onChange={(event) => setNewGarageName(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button"
+                        disabled={isCreatingGarage || !newGarageName.trim()}
+                        type="submit"
+                      >
+                        {isCreatingGarage ? 'Creating...' : '+ Create'}
+                      </button>
+                    </form>
+                  </>
                 )}
-              </>
+              </div>
             ) : (
               <div className="route-empty-state compact">
                 <strong>No garage found</strong>
@@ -1829,15 +2008,6 @@ function AuthenticatedApp({
               <p className="eyebrow">Vehicles</p>
               <h2>{activeVehicles.length} active</h2>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              title="Archive selected vehicle"
-              onClick={archiveVehicle}
-              disabled={activeVehicles.length < 2}
-            >
-              -
-            </button>
           </div>
 
           <div className="vehicle-list" aria-label="Vehicle selector">
@@ -1888,11 +2058,54 @@ function AuthenticatedApp({
                       ? 'Preferred'
                       : 'Make preferred'}
                 </button>
+                {isGarageOwner && activeVehicles.length > 1 && (
+                  <button
+                    aria-label={`Archive ${getVehicleDisplayName(vehicle)}`}
+                    className="icon-button vehicle-row-action"
+                    title="Archive vehicle"
+                    type="button"
+                    onClick={() => setVehiclePendingArchive(vehicle)}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M4 7h16" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                      <path d="M6 7l1 13h10l1-13" />
+                      <path d="M9 7V4h6v3" />
+                    </svg>
+                  </button>
+                )}
               </article>
               ))
             )}
           </div>
 
+          {archivedVehicles.length > 0 && (
+            <div className="archived-vehicles">
+              <p className="eyebrow">Archived</p>
+              <div className="vehicle-list compact-list" aria-label="Archived vehicles">
+                {archivedVehicles.map((vehicle) => (
+                  <article className="vehicle-tile archived" key={vehicle.id}>
+                    <div className="vehicle-select-button">
+                      <span>{getVehicleDisplayName(vehicle)}</span>
+                      <small>{getVehicleFallbackName(vehicle)}</small>
+                    </div>
+                    {isGarageOwner && (
+                      <button
+                        className="secondary-button compact"
+                        type="button"
+                        onClick={() => void updateVehicleArchived(vehicle, false)}
+                      >
+                        Restore
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isGarageOwner ? (
           <form className="compact-form" onSubmit={submitVehicle}>
             <label>
               Name
@@ -1933,12 +2146,55 @@ function AuthenticatedApp({
               {isSavingVehicle ? 'Adding...' : '+ Add vehicle'}
             </button>
           </form>
+          ) : (
+            <p className="config-note">
+              Garage owners manage vehicles. You can still log fill-ups for active
+              vehicles.
+            </p>
+          )}
           </section>
         </section>
         )}
           </>
         )}
       </section>
+
+      {vehiclePendingArchive && (
+        <div
+          aria-labelledby="archive-vehicle-title"
+          aria-modal="true"
+          className="modal-backdrop"
+          role="dialog"
+        >
+          <div className="confirm-modal">
+            <div>
+              <h2 id="archive-vehicle-title">
+                Archive {getVehicleDisplayName(vehiclePendingArchive)}?
+              </h2>
+            </div>
+            <p>
+              This vehicle will be archived and hidden from active vehicle lists. It
+              will not be truly deleted, and its fill-up history will remain available.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setVehiclePendingArchive(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void confirmArchiveVehicle()}
+              >
+                Archive vehicle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <nav className="bottom-nav" aria-label="Primary navigation">
         {navItems.map((item) => (
