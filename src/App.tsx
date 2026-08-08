@@ -469,6 +469,31 @@ function getStoredTheme(): ThemePreference {
     : 'auto'
 }
 
+function getAuthFlowType() {
+  const searchParams = new URLSearchParams(window.location.search)
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+
+  return searchParams.get('type') ?? hashParams.get('type') ?? ''
+}
+
+function sessionNeedsPasswordSetup(session: Session | null, authFlowType: string) {
+  if (!session) {
+    return false
+  }
+
+  const metadata = session.user.user_metadata
+
+  return (
+    authFlowType === 'invite' ||
+    authFlowType === 'recovery' ||
+    Boolean(metadata?.invited_garage_id && !metadata?.password_set)
+  )
+}
+
+function isInvitePasswordSetup(session: Session | null, authFlowType: string) {
+  return authFlowType === 'invite' || Boolean(session?.user.user_metadata?.invited_garage_id)
+}
+
 function getSystemTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
@@ -480,6 +505,7 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
   const [isResetMode, setIsResetMode] = useState(false)
   const [needsPasswordUpdate, setNeedsPasswordUpdate] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
@@ -525,9 +551,18 @@ function App() {
     }
 
     let isMounted = true
+    const initialAuthFlowType = getAuthFlowType()
 
     supabase.auth.getSession().then(({ data }) => {
       if (isMounted) {
+        if (sessionNeedsPasswordSetup(data.session, initialAuthFlowType)) {
+          setNeedsPasswordUpdate(true)
+          setAuthMessage(
+            isInvitePasswordSetup(data.session, initialAuthFlowType)
+              ? 'Set a password to finish creating your account.'
+              : 'Enter a new password to finish resetting your account.',
+          )
+        }
         setSession(data.session)
         setAuthLoading(false)
       }
@@ -536,9 +571,15 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      const authFlowType = getAuthFlowType()
+
+      if (event === 'PASSWORD_RECOVERY' || sessionNeedsPasswordSetup(nextSession, authFlowType)) {
         setNeedsPasswordUpdate(true)
-        setAuthMessage('Enter a new password to finish resetting your account.')
+        setAuthMessage(
+          isInvitePasswordSetup(nextSession, authFlowType)
+            ? 'Set a password to finish creating your account.'
+            : 'Enter a new password to finish resetting your account.',
+        )
       }
       setSession(nextSession)
       setAuthLoading(false)
@@ -590,7 +631,7 @@ function App() {
     setIsAuthSubmitting(true)
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/fillup`,
+      redirectTo: `${window.location.origin}/config`,
     })
 
     setIsAuthSubmitting(false)
@@ -613,10 +654,19 @@ function App() {
 
     setAuthError('')
     setAuthMessage('')
+
+    if (newPassword !== confirmNewPassword) {
+      setAuthError('Passwords do not match.')
+      return
+    }
+
     setIsAuthSubmitting(true)
 
     const { error } = await supabase.auth.updateUser({
       password: newPassword,
+      data: {
+        password_set: true,
+      },
     })
 
     setIsAuthSubmitting(false)
@@ -627,8 +677,10 @@ function App() {
     }
 
     setNewPassword('')
+    setConfirmNewPassword('')
     setNeedsPasswordUpdate(false)
-    setAuthMessage('Password updated.')
+    setAuthMessage('')
+    window.history.replaceState({}, '', '/config')
   }
 
   async function signOut() {
@@ -637,6 +689,7 @@ function App() {
     setNeedsPasswordUpdate(false)
     setPassword('')
     setNewPassword('')
+    setConfirmNewPassword('')
   }
 
   if (authLoading) {
@@ -655,12 +708,14 @@ function App() {
       <main className="app-shell auth-shell">
         <section className="auth-panel">
           <p className="eyebrow">Fuel log</p>
-          <h1>Set new password</h1>
-          <p className="auth-copy">Choose a new password for this account.</p>
+          <h1>Set password</h1>
+          <p className="auth-copy">
+            Choose a password so you can sign into Gas Logger later.
+          </p>
 
           <form className="auth-form" onSubmit={updatePassword}>
             <label>
-              New password
+              Password
               <input
                 autoComplete="new-password"
                 minLength={6}
@@ -670,9 +725,25 @@ function App() {
                 value={newPassword}
               />
             </label>
+            <label>
+              Confirm password
+              <input
+                autoComplete="new-password"
+                minLength={6}
+                onChange={(event) => setConfirmNewPassword(event.target.value)}
+                required
+                type="password"
+                value={confirmNewPassword}
+              />
+            </label>
             <button
               className="primary-button"
-              disabled={isAuthSubmitting || Boolean(supabaseConfigError)}
+              disabled={
+                isAuthSubmitting ||
+                Boolean(supabaseConfigError) ||
+                !newPassword ||
+                !confirmNewPassword
+              }
               type="submit"
             >
               {isAuthSubmitting ? 'Saving...' : 'Save password'}
