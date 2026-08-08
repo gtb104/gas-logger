@@ -94,16 +94,22 @@ Deno.serve(async (req) => {
     const normalizedEmail = String(email).trim().toLowerCase()
     const inviteRole = role === 'owner' ? 'owner' : 'member'
 
-    const { error: inviteRowError } = await userClient.from('garage_invites').insert({
-      garage_id: garageId,
-      email: normalizedEmail,
-      role: inviteRole,
-      invited_by: user.id,
-    })
+    const { data: inviteRow, error: inviteRowError } = await userClient
+      .from('garage_invites')
+      .insert({
+        garage_id: garageId,
+        email: normalizedEmail,
+        role: inviteRole,
+        invited_by: user.id,
+      })
+      .select('id')
+      .single()
 
-    if (inviteRowError) {
+    if (inviteRowError || !inviteRow) {
       return new Response(
-        JSON.stringify({ error: inviteRowError.message }),
+        JSON.stringify({
+          error: inviteRowError?.message ?? 'Unable to create garage invite',
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
@@ -119,9 +125,26 @@ Deno.serve(async (req) => {
     )
 
     if (authInviteError) {
+      await adminClient
+        .from('garage_invites')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('id', inviteRow.id)
+
+      const status =
+        'status' in authInviteError
+          ? (authInviteError.status as unknown)
+          : undefined
+      const message =
+        status === 429
+          ? 'Invite email limit reached. Try again later.'
+          : authInviteError.message
+
       return new Response(
-        JSON.stringify({ error: authInviteError.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        JSON.stringify({ error: message }),
+        {
+          status: typeof status === 'number' ? status : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
       )
     }
 

@@ -432,6 +432,42 @@ function getDataErrorMessage(action: string) {
   return `${action} Check your connection and try again.`
 }
 
+function getFunctionErrorResponse(error: unknown) {
+  if (!error || typeof error !== 'object' || !('context' in error)) {
+    return null
+  }
+
+  const context = (error as { context?: unknown }).context
+
+  return context instanceof Response ? context : null
+}
+
+async function getInviteErrorMessage(error: unknown) {
+  const response = getFunctionErrorResponse(error)
+
+  if (response?.status === 429) {
+    return 'Supabase invite email limit reached. Try again later.'
+  }
+
+  if (response) {
+    try {
+      const body = (await response.clone().json()) as {
+        error?: unknown
+        message?: unknown
+      }
+      const message = body.error ?? body.message
+
+      if (typeof message === 'string' && message.trim()) {
+        return message.trim()
+      }
+    } catch {
+      // Fall through to the generic message if the function did not return JSON.
+    }
+  }
+
+  return getDataErrorMessage('Unable to send that invite.')
+}
+
 function getCurrentRoute(): AppRoute {
   return routes.includes(window.location.pathname as AppRoute)
     ? (window.location.pathname as AppRoute)
@@ -859,6 +895,7 @@ function AuthenticatedApp({
   const [isDataLoading, setIsDataLoading] = useState(true)
   const [isCreatingGarage, setIsCreatingGarage] = useState(false)
   const [acceptingInviteId, setAcceptingInviteId] = useState('')
+  const [revokingInviteId, setRevokingInviteId] = useState('')
   const [isSendingInvite, setIsSendingInvite] = useState(false)
   const [isRenamingGarage, setIsRenamingGarage] = useState(false)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
@@ -1413,7 +1450,7 @@ function AuthenticatedApp({
     })
 
     if (error) {
-      setDataError(getDataErrorMessage('Unable to send that invite.'))
+      setDataError(await getInviteErrorMessage(error))
       setIsSendingInvite(false)
       return
     }
@@ -1457,6 +1494,41 @@ function AuthenticatedApp({
       garageId: joinedGarageId,
     })
     setAcceptingInviteId('')
+  }
+
+  async function revokeGarageInvite(invite: GarageInvite) {
+    if (!selectedGarage || !isGarageOwner || invite.garageId !== selectedGarage.garageId) {
+      setDataError('Only garage owners can revoke invites.')
+      return
+    }
+
+    setDataError('')
+    setRevokingInviteId(invite.id)
+
+    if (!supabase) {
+      setDataError(supabaseConfigError)
+      setRevokingInviteId('')
+      return
+    }
+
+    const { error } = await supabase
+      .from('garage_invites')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', invite.id)
+      .eq('garage_id', selectedGarage.garageId)
+      .is('accepted_at', null)
+      .is('revoked_at', null)
+
+    if (error) {
+      setDataError(getDataErrorMessage('Unable to revoke that invite.'))
+      setRevokingInviteId('')
+      return
+    }
+
+    setGarageInvites((invites) =>
+      invites.filter((pendingInvite) => pendingInvite.id !== invite.id),
+    )
+    setRevokingInviteId('')
   }
 
   function renderCreateGarageForm(buttonLabel = '+ Create') {
@@ -2256,8 +2328,18 @@ function AuthenticatedApp({
                         <p className="eyebrow">Pending invites</p>
                         {garageInvites.map((invite) => (
                           <div className="invite-row" key={invite.id}>
-                            <span>{invite.email}</span>
-                            <small>{invite.role}</small>
+                            <div>
+                              <span>{invite.email}</span>
+                              <small>{invite.role}</small>
+                            </div>
+                            <button
+                              className="secondary-button compact"
+                              disabled={Boolean(revokingInviteId)}
+                              type="button"
+                              onClick={() => void revokeGarageInvite(invite)}
+                            >
+                              {revokingInviteId === invite.id ? 'Revoking...' : 'Revoke'}
+                            </button>
                           </div>
                         ))}
                       </div>
